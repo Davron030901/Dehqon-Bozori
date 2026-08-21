@@ -1,0 +1,28 @@
+# Secrets — must never enter the image layer cache
+.env
+.env.*
+!.env.example
+
+# Local data
+*.db
+*.db-wal
+*.db-shm
+*.db-journal
+media/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+
+# Repo noise
+.git/
+.gitignore
+README.md
+render.yaml
+supabase/
+test_platform.py
+seed.py

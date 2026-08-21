@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>E‘lonlarim — Dehqon Bozori 🌿</title>
+<meta name="theme-color" content="#1D9E75">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+
+<header class="topbar" id="topbar"></header>
+
+<main class="wrap">
+  <div class="section-title">
+    <h1 style="font-size:23px;margin:16px 0 0" id="title"></h1>
+    <button class="icon-btn" type="button" id="logout"></button>
+  </div>
+  <p class="muted" id="who" style="margin:4px 0 0;font-size:14px"></p>
+  <section id="gate" class="form"></section>
+  <div class="stack" id="list" style="padding:14px 0 40px"></div>
+</main>
+
+<footer id="footer"></footer>
+
+<script src="/app.js"></script>
+<script>
+(function () {
+  var t = DB.t, el = DB.el;
+  DB.renderHeader('my');
+  DB.renderFooter();
+
+  document.getElementById('title').textContent = t('my_title');
+  var logoutBtn = document.getElementById('logout');
+  logoutBtn.textContent = t('logout');
+  logoutBtn.addEventListener('click', DB.logout);
+  logoutBtn.classList.add('hidden');
+
+  var list = document.getElementById('list');
+  var gate = document.getElementById('gate');
+
+  DB.whoami().then(function (me) {
+    if (!me) {
+      gate.appendChild(DB.loginPanel(function () { location.reload(); }));
+      return;
+    }
+    logoutBtn.classList.remove('hidden');
+    document.getElementById('who').textContent =
+      (me.user.full_name || me.user.username || '') + ' · ' + me.listings_count;
+    load();
+  });
+
+  function row(item) {
+    var thumb = el('div', {
+      style: 'width:74px;height:74px;border-radius:12px;overflow:hidden;background:var(--green-soft);' +
+             'display:flex;align-items:center;justify-content:center;font-size:30px;flex:0 0 auto'
+    }, item.photo
+        ? [el('img', { src: item.photo, alt: '', style: 'width:100%;height:100%;object-fit:cover' })]
+        : [document.createTextNode(item.category_emoji)]);
+
+    var sold = item.status === 'sold';
+
+    var actions = el('div', { class: 'row', style: 'flex-wrap:wrap;gap:6px;margin-top:8px' }, [
+      el('button', {
+        class: 'btn ghost sm', type: 'button', text: sold ? t('mark_active') : t('mark_sold'),
+        onclick: function () {
+          DB.api('/my/listings/' + item.id, {
+            method: 'PATCH', body: { status: sold ? 'active' : 'sold' }
+          }).then(function () { DB.toast(t('saved')); load(); })
+            .catch(function (e) { DB.toast(e.message); });
+        }
+      }),
+      el('a', { class: 'btn ghost sm', href: '/e/' + item.id, text: '👁' }),
+      el('button', {
+        class: 'btn danger sm', type: 'button', text: t('delete'),
+        onclick: function () {
+          if (!confirm(t('confirm_delete'))) return;
+          DB.api('/my/listings/' + item.id, { method: 'DELETE' })
+            .then(function () { DB.toast(t('deleted')); load(); })
+            .catch(function (e) { DB.toast(e.message); });
+        }
+      })
+    ]);
+
+    return el('div', { class: 'panel', style: 'display:flex;gap:12px;align-items:flex-start' }, [
+      thumb,
+      el('div', { style: 'flex:1;min-width:0' }, [
+        el('div', { class: 'row', style: 'gap:6px;flex-wrap:wrap' }, [
+          el('strong', { text: item.title }),
+          sold ? el('span', { class: 'badge sold', style: 'position:static', text: t('sold') }) : null,
+          item.is_new_today && !sold
+            ? el('span', { class: 'badge', style: 'position:static', text: t('today') }) : null
+        ]),
+        el('div', { style: 'color:var(--green-dark);font-weight:700',
+          text: item.price_display + ' / ' + item.unit_label }),
+        el('div', { class: 'muted', style: 'font-size:13px',
+          text: '📍 ' + item.region_label + ' · 👁 ' + item.views + ' · ' +
+                DB.fmtDate(item.created_at) + ' · ' + item.source }),
+        actions
+      ])
+    ]);
+  }
+
+  function load() {
+    list.innerHTML = '';
+    DB.api('/my/listings?lang=' + DB.lang()).then(function (items) {
+      if (!items.length) {
+        list.appendChild(el('div', { class: 'empty' }, [
+          el('div', { class: 'big', text: '🌱' }),
+          el('div', { text: t('my_empty') }),
+          el('p', {}, [el('a', { class: 'btn', href: '/sell', text: '➕ ' + t('sell_cta') })])
+        ]));
+        return;
+      }
+      items.forEach(function (item) { list.appendChild(row(item)); });
+    }).catch(function (e) { DB.toast(e.message); });
+  }
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Dehqon Bozori 🌿 — vositachisiz qishloq bozori</title>
+<meta name="description" content="Qishloq dehqonlaridan to‘g‘ridan-to‘g‘ri meva, sabzavot, don va sut mahsulotlari. Vositachisiz, ro‘yxatdan o‘tmasdan.">
+<meta name="theme-color" content="#1D9E75">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/icon.svg">
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+
+<header class="topbar" id="topbar"></header>
+
+<main class="wrap">
+  <section class="hero">
+    <h1 id="hero-h1"></h1>
+    <p id="hero-p"></p>
+    <div class="stat-row" id="stats"></div>
+  </section>
+
+  <form class="searchbar" id="search-form" role="search">
+    <input type="search" id="q" name="q" autocomplete="off" enterkeyhint="search">
+    <button class="btn" type="submit" id="search-btn"></button>
+  </form>
+
+  <nav class="chips" id="chips" aria-label="categories"></nav>
+
+  <div class="filters">
+    <select id="f-region"></select>
+    <select id="f-sort"></select>
+    <input type="number" id="f-min" min="0" step="500" inputmode="numeric">
+    <input type="number" id="f-max" min="0" step="500" inputmode="numeric">
+    <button class="icon-btn" type="button" id="f-reset"></button>
+  </div>
+
+  <div class="result-count" id="count"></div>
+  <div class="grid" id="grid"></div>
+  <div class="pager" id="pager"></div>
+</main>
+
+<a class="btn fab" href="/sell" id="fab"></a>
+
+<footer id="footer"></footer>
+
+<script src="/app.js"></script>
+<script>
+(function () {
+  var t = DB.t, el = DB.el;
+
+  DB.renderHeader('home');
+  DB.renderFooter();
+
+  document.getElementById('hero-h1').textContent = t('hero_h1');
+  document.getElementById('hero-p').textContent = t('hero_p');
+  document.getElementById('q').placeholder = t('search_ph');
+  document.getElementById('search-btn').textContent = t('search');
+  document.getElementById('f-reset').textContent = '✕ ' + t('reset');
+  document.getElementById('f-min').placeholder = t('price_from');
+  document.getElementById('f-max').placeholder = t('price_to');
+  document.getElementById('fab').textContent = '➕ ' + t('sell_cta');
+
+  // ---- state, mirrored into the URL so filters are shareable -------------
+  var url = new URL(location.href);
+  var state = {
+    q: url.searchParams.get('q') || '',
+    category: url.searchParams.get('category') || '',
+    region: url.searchParams.get('region') || '',
+    sort: url.searchParams.get('sort') || 'new',
+    min_price: url.searchParams.get('min_price') || '',
+    max_price: url.searchParams.get('max_price') || '',
+    page: parseInt(url.searchParams.get('page') || '1', 10)
+  };
+
+  document.getElementById('q').value = state.q;
+  document.getElementById('f-min').value = state.min_price;
+  document.getElementById('f-max').value = state.max_price;
+
+  function syncUrl() {
+    var p = new URLSearchParams();
+    Object.keys(state).forEach(function (k) {
+      if (state[k] && !(k === 'page' && state[k] === 1) && !(k === 'sort' && state[k] === 'new')) {
+        p.set(k, state[k]);
+      }
+    });
+    var qs = p.toString();
+    history.replaceState(null, '', qs ? '?' + qs : location.pathname);
+  }
+
+  // ---- stats -------------------------------------------------------------
+  DB.api('/stats').then(function (s) {
+    var host = document.getElementById('stats');
+    [[s.active_listings, t('stat_listings')], [s.sellers, t('stat_sellers')],
+     [s.regions, t('stat_regions')]].forEach(function (pair) {
+      host.appendChild(el('div', { class: 'stat' }, [
+        el('b', { text: String(pair[0]) }),
+        el('small', { text: pair[1] })
+      ]));
+    });
+  }).catch(function () {});
+
+  // ---- filters -----------------------------------------------------------
+  DB.meta().then(function (m) {
+    var chips = document.getElementById('chips');
+    var all = [{ key: '', uz: t('all'), ru: t('all'), emoji: '🧺' }].concat(m.categories);
+    all.forEach(function (c) {
+      var b = el('button', {
+        class: 'chip', type: 'button',
+        'aria-pressed': String(state.category === c.key),
+        text: (c.emoji ? c.emoji + ' ' : '') + DB.label(c),
+        onclick: function () {
+          state.category = c.key; state.page = 1;
+          [].forEach.call(chips.children, function (x) { x.setAttribute('aria-pressed', 'false'); });
+          b.setAttribute('aria-pressed', 'true');
+          load();
+        }
+      });
+      chips.appendChild(b);
+    });
+
+    DB.fillSelect(document.getElementById('f-region'), m.regions,
+      { placeholder: t('all_regions'), value: state.region });
+
+    var sortSel = document.getElementById('f-sort');
+    [['new', t('sort_new')], ['price_asc', t('sort_price_asc')],
+     ['price_desc', t('sort_price_desc')], ['popular', t('sort_popular')]].forEach(function (o) {
+      sortSel.appendChild(el('option', { value: o[0], text: o[1] }));
+    });
+    sortSel.value = state.sort;
+
+    load();
+  });
+
+  // ---- events ------------------------------------------------------------
+  document.getElementById('search-form').addEventListener('submit', function (e) {
+    e.preventDefault();
+    state.q = document.getElementById('q').value.trim();
+    state.page = 1;
+    load();
+  });
+  document.getElementById('f-region').addEventListener('change', function (e) {
+    state.region = e.target.value; state.page = 1; load();
+  });
+  document.getElementById('f-sort').addEventListener('change', function (e) {
+    state.sort = e.target.value; state.page = 1; load();
+  });
+  ['f-min', 'f-max'].forEach(function (id) {
+    document.getElementById(id).addEventListener('change', function (e) {
+      state[id === 'f-min' ? 'min_price' : 'max_price'] = e.target.value;
+      state.page = 1; load();
+    });
+  });
+  document.getElementById('f-reset').addEventListener('click', function () {
+    location.href = '/';
+  });
+
+  // ---- load --------------------------------------------------------------
+  var grid = document.getElementById('grid');
+  var pager = document.getElementById('pager');
+  var countEl = document.getElementById('count');
+
+  function load() {
+    syncUrl();
+    DB.skeletons(grid, 8);
+    pager.innerHTML = '';
+    countEl.textContent = t('loading');
+
+    var p = new URLSearchParams({ lang: DB.lang(), page: state.page, sort: state.sort });
+    ['q', 'category', 'region', 'min_price', 'max_price'].forEach(function (k) {
+      if (state[k]) p.set(k, state[k]);
+    });
+
+    DB.api('/listings?' + p.toString()).then(function (data) {
+      countEl.textContent = t('found', { n: data.total });
+      if (!data.items.length) {
+        DB.emptyState(grid, t('nothing'), t('nothing_p'));
+        return;
+      }
+      grid.innerHTML = '';
+      data.items.forEach(function (item) { grid.appendChild(DB.listingCard(item)); });
+
+      if (data.pages > 1) {
+        var mk = function (label, page, disabled) {
+          return el('button', {
+            class: 'icon-btn', type: 'button', text: label, disabled: disabled ? 'disabled' : null,
+            onclick: function () { state.page = page; load(); window.scrollTo(0, 0); }
+          });
+        };
+        pager.appendChild(mk('←', state.page - 1, state.page <= 1));
+        pager.appendChild(el('span', { class: 'muted', text: state.page + ' / ' + data.pages }));
+        pager.appendChild(mk('→', state.page + 1, state.page >= data.pages));
+      }
+    }).catch(function (e) {
+      countEl.textContent = '';
+      DB.emptyState(grid, t('err_generic'), e.message);
+    });
+  }
+})();
+</script>
+</body>
+</html>

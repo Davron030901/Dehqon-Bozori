@@ -1,0 +1,32 @@
+# Secrets — never commit. Contains your real BOT_TOKEN.
+.env
+
+# Local database and uploaded photos
+*.db
+*.db-wal
+*.db-shm
+media/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Node / Next.js (frontend has its own .gitignore too)
+node_modules/
+.next/
+.vercel
+
+# Backend runtime data
+backend/media/
+backend/*.db
+backend/.env

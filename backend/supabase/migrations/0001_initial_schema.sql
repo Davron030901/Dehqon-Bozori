@@ -1,0 +1,18 @@
+-- 0001 — dastlabki sxema
+-- ---------------------------------------------------------------------------
+-- Dastlabki sxema `backend/supabase/schema.sql` faylida turadi va shu yerda
+-- takrorlanmaydi: bitta sxemaning ikkita nusxasi muqarrar ravishda bir-biridan
+-- uzoqlashadi, va qaysi biri to'g'ri ekanini hech kim bilmay qoladi.
+--
+-- Yangi loyihada:
+--
+--   Dashboard → SQL Editor → New query → schema.sql ni joylang → Run
+--
+-- schema.sql butunlay `create ... if not exists` va `create or replace` dan
+-- iborat, shuning uchun uni istalgan vaqtda qayta ishlatish xavfsiz — u ham
+-- 0001 migratsiyasi, ham joriy holatning to'liq surati.
+--
+-- Bu papkadagi keyingi fayllar (0002, 0003 …) mustaqil, ishga tushiriladigan
+-- o'zgarishlar bo'ladi: allaqachon ishlab turgan bazani yangilash uchun.
+-- Har safar migratsiya yozganingizda schema.sql ni ham yangilang.
+-- ---------------------------------------------------------------------------

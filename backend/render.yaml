@@ -1,0 +1,61 @@
+# Render blueprint — Dehqon Bozori API + Telegram bot, one Docker service.
+#
+#   Render → New → Blueprint → pick this repo → fill in the secrets below.
+#
+# Why one service: the API and the bot share a database and an event loop, so
+# running them together means one deploy, one cold start, and one free
+# instance instead of two.
+
+services:
+  - type: web
+    name: dehqon-bozori-backend
+    runtime: docker
+    rootDir: backend
+    dockerfilePath: ./Dockerfile
+    plan: free
+    region: frankfurt          # closest Render region to Uzbekistan
+    healthCheckPath: /health
+    autoDeploy: true
+
+    envVars:
+      # --- secrets: paste real values in the Render dashboard --------------
+      # `sync: false` means Render prompts for the value and never stores it
+      # in git.
+      - key: BOT_TOKEN
+        sync: false
+      - key: BOT_USERNAME
+        sync: false
+      - key: ADMIN_IDS
+        sync: false
+      - key: ADMIN_API_TOKEN
+        generateValue: true    # Render generates a strong random token for you
+      - key: PHOTO_ARCHIVE_CHAT_ID
+        sync: false
+      - key: DATABASE_URL
+        sync: false            # Supabase Postgres connection string
+
+      # --- non-secret configuration ---------------------------------------
+      - key: ENV
+        value: production
+      - key: API_HOST
+        value: 0.0.0.0
+      - key: PUBLIC_BASE_URL
+        fromService:
+          type: web
+          name: dehqon-bozori-backend
+          property: host
+      # Lock this down to your Vercel domain once the frontend is deployed.
+      - key: CORS_ORIGINS
+        value: "*"
+      - key: DEFAULT_CURRENCY
+        value: "so'm"
+      - key: MAX_UPLOAD_MB
+        value: "8"
+
+    # Only needed if you stay on SQLite instead of Supabase Postgres, or if you
+    # do not set PHOTO_ARCHIVE_CHAT_ID and want uploaded photos to survive a
+    # deploy. Requires a paid instance type — delete this block on the free plan.
+    # disk:
+    #   name: dehqon-data
+    #   mountPath: /app/media
+    #   sizeGB: 1

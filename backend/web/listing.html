@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>E‘lon — Dehqon Bozori 🌿</title>
+<meta name="theme-color" content="#1D9E75">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+
+<header class="topbar" id="topbar"></header>
+
+<main class="wrap">
+  <p style="padding-top:12px"><a class="icon-btn" href="/" id="back"></a></p>
+  <div class="detail" id="detail"></div>
+  <section id="similar-wrap" class="hidden">
+    <div class="section-title"><h2 id="similar-title"></h2></div>
+    <div class="grid" id="similar"></div>
+  </section>
+</main>
+
+<footer id="footer"></footer>
+
+<script src="/app.js"></script>
+<script>
+(function () {
+  var t = DB.t, el = DB.el;
+  DB.renderHeader();
+  DB.renderFooter();
+  document.getElementById('back').textContent = '← ' + t('home');
+
+  var id = parseInt(location.pathname.split('/').pop(), 10);
+  var host = document.getElementById('detail');
+
+  if (!id) { host.textContent = t('not_found'); return; }
+
+  DB.api('/listings/' + id + '?lang=' + DB.lang()).then(render).catch(function () {
+    host.innerHTML = '';
+    host.appendChild(el('div', { class: 'empty' }, [
+      el('div', { class: 'big', text: '🌾' }),
+      el('div', { text: t('not_found') })
+    ]));
+  });
+
+  function contactRow(cls, icon, text, href, channel) {
+    return el('a', {
+      class: cls, href: href, rel: 'noopener',
+      target: channel === 'call' ? null : '_blank',
+      onclick: function () {
+        // Fire-and-forget: records the lead and pings the seller in Telegram.
+        DB.api('/listings/' + id + '/contact?channel=' + channel, { method: 'POST' })
+          .catch(function () {});
+      }
+    }, [document.createTextNode(icon + '  ' + text)]);
+  }
+
+  function render(item) {
+    document.title = item.title + ' — ' + item.price_display + ' | Dehqon Bozori';
+
+    var photo = el('div', { class: 'photo-box' },
+      item.photo
+        ? [el('img', { src: item.photo, alt: item.title, decoding: 'async' })]
+        : [document.createTextNode(item.category_emoji || '📦')]);
+
+    var badges = [];
+    if (item.is_new_today && item.status === 'active') {
+      badges.push(el('span', { class: 'badge', style: 'position:static;display:inline-block',
+        text: t('today') }));
+    }
+    if (item.status === 'sold') {
+      badges.push(el('span', { class: 'badge sold', style: 'position:static;display:inline-block',
+        text: t('sold') }));
+    }
+
+    var kv = el('dl', { class: 'kv' });
+    function pair(k, v) {
+      if (!v) return;
+      kv.appendChild(el('dt', { text: k }));
+      kv.appendChild(el('dd', { text: v }));
+    }
+    pair(t('category'), item.category_emoji + ' ' + item.category_label);
+    pair(t('region'), item.region_label);
+    pair(t('district'), item.district);
+    pair(t('quantity'), item.quantity);
+    pair(t('harvest'), item.harvest_date);
+    pair(t('seller'), (item.seller && (item.seller.full_name || item.seller.username)) || '—');
+    pair(t('posted'), DB.fmtDate(item.created_at) + ' · ' + item.views + ' ' + t('views'));
+
+    var buttons = el('div', { class: 'contact-buttons' });
+    if (item.phone) {
+      buttons.appendChild(contactRow('c-call', '📞', t('call') + ' ' + item.phone,
+        'tel:' + item.phone.replace(/[^\d+]/g, ''), 'call'));
+    }
+    if (item.telegram_username) {
+      buttons.appendChild(contactRow('c-tg', '✈️', 'Telegram: @' + item.telegram_username,
+        'https://t.me/' + item.telegram_username, 'telegram'));
+    }
+    if (item.whatsapp) {
+      buttons.appendChild(contactRow('c-wa', '🟢', 'WhatsApp',
+        'https://wa.me/' + item.whatsapp.replace(/\D/g, ''), 'whatsapp'));
+    }
+    if (!buttons.children.length) {
+      buttons.appendChild(el('div', { class: 'notice warn', text: t('no_contact') }));
+    }
+
+    var right = el('div', {}, [
+      el('div', { class: 'panel' }, [
+        badges.length ? el('div', { class: 'row', style: 'margin-bottom:8px' }, badges) : null,
+        el('h2', { text: item.title }),
+        el('div', { class: 'price-big', text: item.price_display }),
+        el('div', { class: 'muted', text: '1 ' + item.unit_label + ' ' + t('per') }),
+        item.description ? el('p', { style: 'margin:14px 0 0;white-space:pre-wrap',
+          text: item.description }) : null,
+        kv
+      ]),
+      el('div', { class: 'panel' }, [
+        el('h2', { style: 'font-size:17px', text: t('contact_title') }),
+        buttons,
+        el('div', { class: 'note', text: t('contact_note') })
+      ])
+    ]);
+
+    host.innerHTML = '';
+    host.appendChild(photo);
+    host.appendChild(right);
+
+    loadSimilar(item);
+  }
+
+  function loadSimilar(item) {
+    DB.api('/listings?category=' + encodeURIComponent(item.category) +
+           '&per_page=8&lang=' + DB.lang()).then(function (data) {
+      var others = data.items.filter(function (x) { return x.id !== item.id; }).slice(0, 6);
+      if (!others.length) return;
+      document.getElementById('similar-title').textContent = t('similar');
+      var grid = document.getElementById('similar');
+      others.forEach(function (x) { grid.appendChild(DB.listingCard(x)); });
+      document.getElementById('similar-wrap').classList.remove('hidden');
+    }).catch(function () {});
+  }
+})();
+</script>
+</body>
+</html>

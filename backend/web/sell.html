@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>E‘lon berish — Dehqon Bozori 🌿</title>
+<meta name="theme-color" content="#1D9E75">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+
+<header class="topbar" id="topbar"></header>
+
+<main class="wrap">
+  <section class="form" id="gate"></section>
+
+  <form class="form hidden" id="form">
+    <div>
+      <h1 style="margin:14px 0 4px;font-size:24px" id="ftitle"></h1>
+      <p class="muted" style="margin:0" id="fsub"></p>
+    </div>
+
+    <div class="field">
+      <label id="l-photo"></label>
+      <label class="photo-drop" for="photo">
+        <div id="photo-hint"></div>
+        <div id="photo-preview"></div>
+      </label>
+      <input type="file" id="photo" accept="image/*" capture="environment" style="display:none">
+    </div>
+
+    <div class="field">
+      <label for="title" id="l-title"></label>
+      <input id="title" required maxlength="100" autocomplete="off">
+    </div>
+
+    <div class="field">
+      <label for="category" id="l-category"></label>
+      <select id="category" required></select>
+    </div>
+
+    <div class="field two">
+      <div class="field">
+        <label for="price" id="l-price"></label>
+        <input id="price" type="number" min="1" step="100" required inputmode="numeric">
+      </div>
+      <div class="field">
+        <label for="unit" id="l-unit"></label>
+        <select id="unit" required></select>
+      </div>
+    </div>
+
+    <div class="field">
+      <label for="quantity" id="l-quantity"></label>
+      <input id="quantity" maxlength="64" placeholder="500 kg">
+    </div>
+
+    <div class="field two">
+      <div class="field">
+        <label for="region" id="l-region"></label>
+        <select id="region" required></select>
+      </div>
+      <div class="field">
+        <label for="district" id="l-district"></label>
+        <input id="district" maxlength="128">
+      </div>
+    </div>
+
+    <div class="field">
+      <label for="harvest" id="l-harvest"></label>
+      <input id="harvest" type="date">
+    </div>
+
+    <div class="field">
+      <label for="description" id="l-desc"></label>
+      <textarea id="description" maxlength="1000"></textarea>
+    </div>
+
+    <div class="field">
+      <label id="l-contacts" style="font-size:15px"></label>
+      <input id="phone" type="tel" inputmode="tel" placeholder="+998 90 123 45 67">
+      <input id="telegram_username" placeholder="@username">
+      <input id="whatsapp" type="tel" inputmode="tel" placeholder="+998 90 123 45 67">
+    </div>
+
+    <div id="msg" class="hidden"></div>
+    <button class="btn block" type="submit" id="submit"></button>
+  </form>
+</main>
+
+<footer id="footer"></footer>
+
+<script src="/app.js"></script>
+<script>
+(function () {
+  var t = DB.t, el = DB.el;
+  DB.renderHeader('sell');
+  DB.renderFooter();
+
+  var form = document.getElementById('form');
+  var gate = document.getElementById('gate');
+  var msg = document.getElementById('msg');
+  var uploadedUrl = null;
+  var me = null;
+
+  // ---- labels ------------------------------------------------------------
+  var LABELS = {
+    ftitle: 'form_title', fsub: 'form_p', 'l-photo': 'f_photo', 'photo-hint': 'f_photo_hint',
+    'l-title': 'f_title', 'l-category': 'f_category', 'l-price': 'f_price', 'l-unit': 'f_unit',
+    'l-quantity': 'f_quantity', 'l-region': 'f_region', 'l-district': 'f_district',
+    'l-harvest': 'f_harvest', 'l-desc': 'f_desc', 'l-contacts': 'f_contacts', submit: 'publish'
+  };
+  Object.keys(LABELS).forEach(function (id) {
+    var node = document.getElementById(id);
+    if (node) node.textContent = t(LABELS[id]);
+  });
+  document.getElementById('l-contacts').textContent = t('f_contacts') + ' *';
+
+  // ---- auth gate ---------------------------------------------------------
+  DB.whoami().then(function (user) {
+    if (!user) {
+      gate.appendChild(DB.loginPanel(function () { location.reload(); }));
+      gate.appendChild(el('p', { class: 'muted center', style: 'font-size:14px',
+        text: t('hero_p') }));
+      return;
+    }
+    me = user;
+    gate.classList.add('hidden');
+    form.classList.remove('hidden');
+    if (me.user.phone) document.getElementById('phone').value = me.user.phone;
+    if (me.user.username) document.getElementById('telegram_username').value = '@' + me.user.username;
+    fillRefs();
+  });
+
+  function fillRefs() {
+    DB.meta().then(function (m) {
+      DB.fillSelect(document.getElementById('category'), m.categories);
+      DB.fillSelect(document.getElementById('unit'), m.units, { value: 'kg' });
+      DB.fillSelect(document.getElementById('region'), m.regions,
+        { value: (me && me.user.region) || 'samarkand' });
+    });
+  }
+
+  // ---- photo upload ------------------------------------------------------
+  document.getElementById('photo').addEventListener('change', function (e) {
+    var file = e.target.files && e.target.files[0];
+    if (!file) return;
+    var preview = document.getElementById('photo-preview');
+    preview.innerHTML = '';
+    preview.appendChild(el('img', { src: URL.createObjectURL(file), alt: '' }));
+    document.getElementById('photo-hint').textContent = t('saving');
+
+    var fd = new FormData();
+    fd.append('file', file);
+    DB.api('/my/upload', { method: 'POST', body: fd }).then(function (res) {
+      uploadedUrl = res.photo_url;
+      document.getElementById('photo-hint').textContent = '✅';
+    }).catch(function (err) {
+      uploadedUrl = null;
+      preview.innerHTML = '';
+      document.getElementById('photo-hint').textContent = err.message;
+    });
+  });
+
+  // ---- submit ------------------------------------------------------------
+  form.addEventListener('submit', function (e) {
+    e.preventDefault();
+    var v = function (id) { return (document.getElementById(id).value || '').trim(); };
+
+    var payload = {
+      title: v('title'),
+      category: v('category'),
+      price: parseFloat(v('price')),
+      unit: v('unit'),
+      quantity: v('quantity') || null,
+      region: v('region'),
+      district: v('district') || null,
+      description: v('description') || null,
+      phone: v('phone') || null,
+      telegram_username: v('telegram_username') || null,
+      whatsapp: v('whatsapp') || null,
+      harvest_date: v('harvest') || null,
+      photo_url: uploadedUrl
+    };
+
+    if (!payload.phone && !payload.telegram_username && !payload.whatsapp) {
+      msg.className = 'notice err';
+      msg.textContent = t('err_contact');
+      msg.classList.remove('hidden');
+      return;
+    }
+
+    var btn = document.getElementById('submit');
+    btn.disabled = true;
+    btn.textContent = t('saving');
+    msg.classList.add('hidden');
+
+    DB.api('/my/listings?lang=' + DB.lang(), { method: 'POST', body: payload })
+      .then(function (created) {
+        DB.toast(t('published'));
+        location.href = '/e/' + created.id;
+      })
+      .catch(function (err) {
+        msg.className = 'notice err';
+        msg.textContent = err.message;
+        msg.classList.remove('hidden');
+        btn.disabled = false;
+        btn.textContent = t('publish');
+      });
+  });
+})();
+</script>
+</body>
+</html>

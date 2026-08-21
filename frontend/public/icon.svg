@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Dehqon Bozori">
+  <rect width="512" height="512" rx="112" fill="#1D9E75"/>
+  <path d="M64 372c96-26 288-26 384 0v76H64z" fill="#14795A"/>
+  <path d="M64 396c96-22 288-22 384 0" stroke="#0f5f47" stroke-width="10" fill="none" stroke-linecap="round"/>
+  <path d="M64 424c96-22 288-22 384 0" stroke="#0f5f47" stroke-width="10" fill="none" stroke-linecap="round"/>
+  <path d="M256 372V212" stroke="#FAF7F1" stroke-width="24" stroke-linecap="round"/>
+  <path d="M256 268c-8-62-58-92-104-92 0 62 44 96 104 92z" fill="#FAF7F1"/>
+  <path d="M256 236c8-70 58-100 104-100 0 70-44 104-104 100z" fill="#EAF6F0"/>
+  <circle cx="256" cy="150" r="26" fill="#D98324"/>
+</svg>

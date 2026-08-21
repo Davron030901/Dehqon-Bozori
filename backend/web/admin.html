@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Admin — Dehqon Bozori 🌿</title>
+<meta name="theme-color" content="#1D9E75">
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+
+<header class="topbar" id="topbar"></header>
+
+<main class="wrap" style="padding-bottom:40px">
+  <h1 style="font-size:23px;margin:16px 0 10px" id="title"></h1>
+  <section id="gate" class="form"></section>
+
+  <div id="panel" class="hidden">
+    <div class="tiles" id="tiles"></div>
+
+    <div class="section-title"><h2 id="add-title"></h2></div>
+    <form class="panel stack" id="add-form">
+      <div class="field two">
+        <div class="field"><label id="l-sname"></label><input id="seller_name"></div>
+        <div class="field"><label id="l-sphone"></label><input id="seller_phone" type="tel"></div>
+      </div>
+      <div class="field"><label id="l-title"></label><input id="f_title" required></div>
+      <div class="field two">
+        <div class="field"><label id="l-cat"></label><select id="f_category" required></select></div>
+        <div class="field"><label id="l-region"></label><select id="f_region" required></select></div>
+      </div>
+      <div class="field two">
+        <div class="field"><label id="l-price"></label><input id="f_price" type="number" min="1" required></div>
+        <div class="field"><label id="l-unit"></label><select id="f_unit"></select></div>
+      </div>
+      <div class="field two">
+        <div class="field"><label id="l-district"></label><input id="f_district"></div>
+        <div class="field"><label id="l-qty"></label><input id="f_quantity"></div>
+      </div>
+      <div class="field"><label id="l-desc"></label><textarea id="f_description"></textarea></div>
+      <div id="add-msg" class="hidden"></div>
+      <button class="btn" type="submit" id="add-btn"></button>
+    </form>
+
+    <div class="section-title"><h2 id="list-title"></h2></div>
+    <div class="scroll-x">
+      <table class="table" id="table">
+        <thead><tr id="thead"></tr></thead>
+        <tbody id="tbody"></tbody>
+      </table>
+    </div>
+  </div>
+</main>
+
+<footer id="footer"></footer>
+
+<script src="/app.js"></script>
+<script>
+(function () {
+  var t = DB.t, el = DB.el;
+  DB.renderHeader('admin');
+  DB.renderFooter();
+
+  document.getElementById('title').textContent = t('admin_title');
+  var L = {
+    'add-title': 'admin_add', 'l-sname': 'seller_name', 'l-sphone': 'seller_phone',
+    'l-title': 'f_title', 'l-cat': 'f_category', 'l-region': 'f_region', 'l-price': 'f_price',
+    'l-unit': 'f_unit', 'l-district': 'f_district', 'l-qty': 'f_quantity', 'l-desc': 'f_desc',
+    'add-btn': 'publish', 'list-title': 'all_listings'
+  };
+  Object.keys(L).forEach(function (id) {
+    var n = document.getElementById(id); if (n) n.textContent = t(L[id]);
+  });
+
+  var gate = document.getElementById('gate');
+  var panel = document.getElementById('panel');
+
+  DB.whoami().then(function (me) {
+    if (!me) { gate.appendChild(DB.loginPanel(function () { location.reload(); })); return; }
+    if (!me.is_admin) {
+      gate.appendChild(el('div', { class: 'notice err', text: t('no_access') }));
+      gate.appendChild(el('p', { class: 'muted', style: 'font-size:14px',
+        text: 'ADMIN_IDS: ' + me.user.id }));
+      return;
+    }
+    panel.classList.remove('hidden');
+    DB.meta().then(function (m) {
+      DB.fillSelect(document.getElementById('f_category'), m.categories);
+      DB.fillSelect(document.getElementById('f_region'), m.regions, { value: 'samarkand' });
+      DB.fillSelect(document.getElementById('f_unit'), m.units, { value: 'kg' });
+    });
+    loadDashboard();
+    loadTable();
+  });
+
+  function loadDashboard() {
+    DB.api('/admin/dashboard').then(function (d) {
+      var tiles = document.getElementById('tiles');
+      tiles.innerHTML = '';
+      var rows = [
+        [d.totals.active, t('stat_listings')],
+        [d.totals.sold, t('sold')],
+        [d.totals.users, t('stat_sellers')],
+        [d.totals.contacts, '📞 ' + t('contact_title')],
+        [d.totals.listings_week, '7d +'],
+        [d.totals.contacts_week, '7d 📞']
+      ];
+      rows.forEach(function (r) {
+        tiles.appendChild(el('div', { class: 'tile' }, [
+          el('b', { text: String(r[0]) }), el('small', { text: r[1] })
+        ]));
+      });
+      d.by_source.forEach(function (s) {
+        tiles.appendChild(el('div', { class: 'tile' }, [
+          el('b', { text: String(s.count) }), el('small', { text: t('source') + ': ' + s.key })
+        ]));
+      });
+    }).catch(function (e) { DB.toast(e.message); });
+  }
+
+  function loadTable() {
+    var head = document.getElementById('thead');
+    head.innerHTML = '';
+    ['#', t('f_title'), t('f_price'), t('region'), t('source'), '👁', ''].forEach(function (h) {
+      head.appendChild(el('th', { text: h }));
+    });
+
+    DB.api('/admin/listings?per_page=100&lang=' + DB.lang()).then(function (data) {
+      var body = document.getElementById('tbody');
+      body.innerHTML = '';
+      data.items.forEach(function (item) {
+        body.appendChild(el('tr', {}, [
+          el('td', { text: String(item.id) }),
+          el('td', {}, [el('a', { href: '/e/' + item.id, text: item.title,
+            style: 'color:var(--green-dark);font-weight:600' })]),
+          el('td', { text: item.price_display }),
+          el('td', { text: item.region_label }),
+          el('td', { text: item.source }),
+          el('td', { text: String(item.views) }),
+          el('td', {}, [el('button', {
+            class: 'btn danger sm', type: 'button', text: '✕',
+            onclick: function () {
+              if (!confirm(t('confirm_delete'))) return;
+              DB.api('/admin/listings/' + item.id, { method: 'DELETE' })
+                .then(function () { DB.toast(t('deleted')); loadTable(); loadDashboard(); })
+                .catch(function (e) { DB.toast(e.message); });
+            }
+          })])
+        ]));
+      });
+    }).catch(function (e) { DB.toast(e.message); });
+  }
+
+  document.getElementById('add-form').addEventListener('submit', function (e) {
+    e.preventDefault();
+    var v = function (id) { return (document.getElementById(id).value || '').trim(); };
+    var msg = document.getElementById('add-msg');
+    var btn = document.getElementById('add-btn');
+    btn.disabled = true; btn.textContent = t('saving');
+
+    DB.api('/admin/listings?lang=' + DB.lang(), {
+      method: 'POST',
+      body: {
+        seller_name: v('seller_name') || null,
+        seller_phone: v('seller_phone') || null,
+        phone: v('seller_phone') || null,
+        title: v('f_title'),
+        category: v('f_category'),
+        region: v('f_region'),
+        price: parseFloat(v('f_price')),
+        unit: v('f_unit'),
+        district: v('f_district') || null,
+        quantity: v('f_quantity') || null,
+        description: v('f_description') || null
+      }
+    }).then(function () {
+      msg.className = 'notice ok'; msg.textContent = t('published');
+      msg.classList.remove('hidden');
+      document.getElementById('add-form').reset();
+      loadTable(); loadDashboard();
+    }).catch(function (err) {
+      msg.className = 'notice err'; msg.textContent = err.message;
+      msg.classList.remove('hidden');
+    }).then(function () {
+      btn.disabled = false; btn.textContent = t('publish');
+    });
+  });
+})();
+</script>
+</body>
+</html>
