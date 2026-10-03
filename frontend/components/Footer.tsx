@@ -1,9 +1,10 @@
 import Link from 'next/link';
-import { Send } from 'lucide-react';
+import { Send, Smartphone } from 'lucide-react';
 
 import { strings } from '@/lib/strings';
 
 const BOT_USERNAME = process.env.NEXT_PUBLIC_BOT_USERNAME || '';
+const ANDROID_APP_URL = process.env.NEXT_PUBLIC_ANDROID_APP_URL || '';
 
 export default function Footer() {
   const year = new Date().getFullYear();
@@ -28,6 +29,16 @@ export default function Footer() {
             >
               <Send size={15} aria-hidden="true" />
               {strings.footer.openBot}
+            </a>
+          )}
+          {ANDROID_APP_URL && (
+            <a
+              href={ANDROID_APP_URL}
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-2 rounded-full border border-sand-200 bg-white px-3.5 py-2 text-sm font-semibold text-ink transition hover:border-primary-200 hover:text-primary-700"
+            >
+              <Smartphone size={15} aria-hidden="true" />
+              {strings.home.appCta}
             </a>
           )}
           <Link

@@ -3,31 +3,42 @@
  *
  * Components never touch `fetch` or `mockData` — they call the functions here.
  * That is what makes the data source swappable: point NEXT_PUBLIC_API_URL at a
- * different backend (or replace the bodies of these functions with Supabase
- * queries) and nothing in app/ or components/ changes.
+ * different backend and nothing in app/ or components/ changes.
  *
- * Every read falls back to the demo data in mockData.ts when the API is
+ * Every public read falls back to the demo data in mockData.ts when the API is
  * unreachable, so the site is never a blank page — and reports `isDemo: true`
  * so the UI can say so honestly instead of pretending the fake produce is real.
  */
 
 import { getMockListingById, mockListings } from './mockData';
+import { categoryLabels, unitLabels } from './strings';
 import type {
+  CategoryKey,
   DataResult,
+  Facets,
   Listing,
-  ListingCategory,
   ListingFilters,
+  ListingPage,
   NewListingInput,
+  Report,
+  ReportReason,
   Seller,
+  SellerProfile,
   SellerRegistrationInput,
   SortKey,
+  UnitKey,
 } from './types';
 
 export const API_URL = (process.env.NEXT_PUBLIC_API_URL || '').replace(/\/$/, '');
 export const BOT_USERNAME = process.env.NEXT_PUBLIC_BOT_USERNAME || '';
+/** Optional Android download link (an EAS build or a Play Store page). */
+export const ANDROID_APP_URL = process.env.NEXT_PUBLIC_ANDROID_APP_URL || '';
+
+/** Listings per feed page. Small enough for 3G, big enough to scroll. */
+export const PAGE_SIZE = 24;
 
 /** How long to wait before deciding the backend is not there. */
-const TIMEOUT_MS = 6000;
+const TIMEOUT_MS = 8000;
 
 // --------------------------------------------------------------------------- //
 //  Backend payload shapes (snake_case, as FastAPI returns them)
@@ -70,6 +81,7 @@ interface ApiListing {
   is_new_today: boolean;
   created_at: string;
   seller: ApiSeller | null;
+  contacts_count: number | null;
 }
 
 interface ApiPage {
@@ -80,47 +92,57 @@ interface ApiPage {
   pages: number;
 }
 
-// --------------------------------------------------------------------------- //
-//  Category translation
-// --------------------------------------------------------------------------- //
-/** Backend catalogue slug -> the category the UI files it under. */
-const FROM_API: Record<string, ListingCategory> = {
-  vegetables: 'sabzavotlar',
-  greens: 'sabzavotlar',
-  fruits: 'mevalar',
-  melons: 'mevalar',
-  grains: 'don',
-  dairy: 'sut_mahsulotlari',
-  dried: 'yongoqlar',
-  meat: 'boshqa',
-  honey: 'boshqa',
-  seedlings: 'boshqa',
-  other: 'boshqa',
-};
-
-/** UI category -> the slug the backend stores. */
-const TO_API: Record<ListingCategory, string> = {
-  sabzavotlar: 'vegetables',
-  mevalar: 'fruits',
-  don: 'grains',
-  sut_mahsulotlari: 'dairy',
-  yongoqlar: 'dried',
-  boshqa: 'other',
-};
-
-export function toApiCategory(category: ListingCategory): string {
-  return TO_API[category] ?? 'other';
+interface ApiSellerProfile {
+  id: number;
+  full_name: string | null;
+  username: string | null;
+  phone: string | null;
+  region: string | null;
+  region_label: string | null;
+  village: string | null;
+  active_listings: number;
+  total_listings: number;
+  member_since: string | null;
 }
+
+interface ApiFacets {
+  total: number;
+  categories: { [key: string]: number };
+  regions: { [key: string]: number };
+  districts: { [key: string]: number };
+}
+
+interface ApiReport {
+  id: number;
+  listing_id: number;
+  listing_title: string | null;
+  reason: ReportReason;
+  note: string | null;
+  status: 'open' | 'resolved';
+  created_at: string;
+}
+
+type ApiListingList = ApiListing[];
+type ApiIdList = number[];
+type ApiReportList = ApiReport[];
 
 // --------------------------------------------------------------------------- //
 //  Mapping
 // --------------------------------------------------------------------------- //
-/** "500 kg" / "40 litr" / null -> 500 / 40 / 0 */
-function parseQuantity(raw: string | null): number {
-  if (!raw) return 0;
-  const match = raw.replace(/\s/g, '').match(/[\d.]+/);
+function isCategory(key: string): key is CategoryKey {
+  return Object.prototype.hasOwnProperty.call(categoryLabels, key);
+}
+
+function isUnit(key: string): key is UnitKey {
+  return Object.prototype.hasOwnProperty.call(unitLabels, key);
+}
+
+/** "500 kg" / "40 litr" / "1,5 tonna" / null -> 500 / 40 / 1.5 / undefined */
+export function quantityNumber(raw: string | null | undefined): number | undefined {
+  if (!raw) return undefined;
+  const match = raw.replace(/\s/g, '').replace(',', '.').match(/\d+(\.\d+)?/);
   const value = match ? Number.parseFloat(match[0]) : NaN;
-  return Number.isFinite(value) ? value : 0;
+  return Number.isFinite(value) && value > 0 ? value : undefined;
 }
 
 /** Backend photo paths are relative ("/media/…"); make them absolute. */
@@ -144,15 +166,21 @@ function mapSeller(seller: ApiSeller | null): Seller | undefined {
 }
 
 function mapListing(item: ApiListing): Listing {
+  const unit: UnitKey = isUnit(item.unit) ? item.unit : 'kg';
   return {
     id: String(item.id),
     productName: item.title,
-    category: FROM_API[item.category] ?? 'boshqa',
+    // An unknown slug means the backend catalogue grew before this deploy did;
+    // "other" keeps the listing visible instead of crashing a lookup.
+    category: isCategory(item.category) ? item.category : 'other',
     photoUrl: absolutePhotoUrl(item.photo),
-    pricePerKg: item.price,
-    quantityKg: parseQuantity(item.quantity),
-    village: item.seller?.village || item.district_label || item.district || '',
+    price: item.price,
+    unit,
+    unitLabel: item.unit_label || unitLabels[unit],
+    quantity: item.quantity || undefined,
+    village: item.seller?.village || '',
     district: item.district || '',
+    districtLabel: item.district_label || undefined,
     region: item.region,
     harvestDate: item.harvest_date || '',
     phone: item.phone || undefined,
@@ -161,13 +189,31 @@ function mapListing(item: ApiListing): Listing {
     isSoldOut: item.status === 'sold',
     createdAt: item.created_at,
     description: item.description || undefined,
-    unitLabel: item.unit_label,
     views: item.views,
     seller: mapSeller(item.seller),
-    // The backend catalogue is wider than the UI's five chips, so this is the
-    // emoji a honey listing actually carries — the same one the bot shows.
     categoryEmoji: item.category_emoji || undefined,
-    districtLabel: item.district_label || undefined,
+    contactsCount: item.contacts_count ?? undefined,
+  };
+}
+
+function mapPage(page: ApiPage): ListingPage {
+  return {
+    items: page.items.map(mapListing),
+    total: page.total,
+    page: page.page,
+    pages: page.pages,
+  };
+}
+
+function mapReport(r: ApiReport): Report {
+  return {
+    id: r.id,
+    listingId: r.listing_id,
+    listingTitle: r.listing_title || undefined,
+    reason: r.reason,
+    note: r.note || undefined,
+    status: r.status,
+    createdAt: r.created_at,
   };
 }
 
@@ -248,31 +294,212 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
 }
 
 // --------------------------------------------------------------------------- //
+//  Filters <-> URL / API query
+// --------------------------------------------------------------------------- //
+const SORT_TO_API: Record<SortKey, string> = {
+  newest: 'new',
+  cheapest: 'price_asc',
+  expensive: 'price_desc',
+  popular: 'popular',
+};
+
+const SORT_KEYS = Object.keys(SORT_TO_API) as SortKey[];
+
+/** The feed's filters as the API wants them. */
+export function filtersToApiParams(
+  filters: ListingFilters,
+  page = 1,
+  perPage = PAGE_SIZE,
+): URLSearchParams {
+  const params = new URLSearchParams();
+  const query = filters.query?.trim();
+  if (query) params.set('q', query);
+  if (filters.category && filters.category !== 'all') params.set('category', filters.category);
+  if (filters.region && filters.region !== 'all') {
+    params.set('region', filters.region);
+    if (filters.district && filters.district !== 'all') params.set('district', filters.district);
+  }
+  params.set('sort', SORT_TO_API[filters.sort ?? 'newest'] ?? 'new');
+  params.set('page', String(page));
+  params.set('per_page', String(perPage));
+  return params;
+}
+
+/**
+ * The feed's filters as the browser's address bar shows them — only what
+ * differs from the defaults, so a shared link reads `/?category=honey`, not a
+ * wall of empty parameters.
+ */
+export function filtersToSearch(filters: ListingFilters): string {
+  const params = new URLSearchParams();
+  const query = filters.query?.trim();
+  if (query) params.set('q', query);
+  if (filters.category && filters.category !== 'all') params.set('category', filters.category);
+  if (filters.region && filters.region !== 'all') {
+    params.set('region', filters.region);
+    if (filters.district && filters.district !== 'all') params.set('district', filters.district);
+  }
+  if (filters.sort && filters.sort !== 'newest') params.set('sort', filters.sort);
+  const text = params.toString();
+  return text ? `?${text}` : '';
+}
+
+/** Read filters back out of a URL, ignoring anything that is not a real value. */
+export function filtersFromSearch(
+  search: Record<string, string | string[] | undefined>,
+): Required<ListingFilters> {
+  const one = (key: string) => {
+    const value = search[key];
+    return (Array.isArray(value) ? value[0] : value)?.trim() ?? '';
+  };
+  const category = one('category');
+  const sort = one('sort') as SortKey;
+  const region = /^[a-z_]{2,32}$/.test(one('region')) ? one('region') : 'all';
+  return {
+    query: one('q').slice(0, 80),
+    category: isCategory(category) ? category : 'all',
+    region,
+    // A district means nothing without its region.
+    district: region !== 'all' && one('district') ? one('district').slice(0, 64) : 'all',
+    sort: SORT_KEYS.includes(sort) ? sort : 'newest',
+  };
+}
+
+// --------------------------------------------------------------------------- //
 //  Reads — these are the functions pages call
 // --------------------------------------------------------------------------- //
 
-/**
- * Every active listing (first page, generous size) ready for client-side
- * search / filter / sort.
- */
-export async function getListings(): Promise<DataResult<Listing[]>> {
+/** One page of the feed, filtered and sorted by the database. */
+export async function getListingsPage(
+  filters: ListingFilters = {},
+  page = 1,
+  perPage = PAGE_SIZE,
+): Promise<DataResult<ListingPage>> {
   try {
-    const page = await request<ApiPage>('/api/listings?per_page=100&include_sold=false');
-    return { data: page.items.map(mapListing), isDemo: false };
+    const params = filtersToApiParams(filters, page, perPage);
+    const res = await request<ApiPage>(`/api/listings?${params.toString()}`);
+    return { data: mapPage(res), isDemo: false };
   } catch {
-    return { data: mockListings.filter((l) => !l.isSoldOut), isDemo: true };
+    const all = applyFilters(
+      mockListings.filter((l) => !l.isSoldOut),
+      filters,
+    );
+    return { data: paginate(all, page, perPage), isDemo: true };
   }
 }
 
-export async function getListingById(id: string): Promise<DataResult<Listing | null>> {
+export async function getFacets(region?: string): Promise<DataResult<Facets>> {
   try {
-    const item = await request<ApiListing>(`/api/listings/${encodeURIComponent(id)}`);
+    const params = new URLSearchParams();
+    if (region && region !== 'all') params.set('region', region);
+    const res = await request<ApiFacets>(`/api/facets?${params.toString()}`);
+    return { data: res, isDemo: false };
+  } catch {
+    return { data: computeFacets(mockListings, region), isDemo: true };
+  }
+}
+
+/**
+ * One listing. `countView: false` for every read that is not a person opening
+ * the page (metadata, the edit form), so the seller's view count stays honest.
+ */
+export async function getListingById(
+  id: string,
+  { countView = true }: { countView?: boolean } = {},
+): Promise<DataResult<Listing | null>> {
+  try {
+    const suffix = countView ? '' : '?count_view=false';
+    const item = await request<ApiListing>(`/api/listings/${encodeURIComponent(id)}${suffix}`);
     return { data: mapListing(item), isDemo: false };
   } catch (error) {
-    if (error instanceof ApiError && error.status === 404) {
+    if (error instanceof ApiError && (error.status === 404 || error.status === 422)) {
       return { data: null, isDemo: false };
     }
     return { data: getMockListingById(id) ?? null, isDemo: true };
+  }
+}
+
+/** "More like this" — same category, the seller's region first. */
+export async function getSimilarListings(listing: Listing, limit = 4): Promise<Listing[]> {
+  try {
+    const items = await request<ApiListingList>(
+      `/api/listings/${encodeURIComponent(listing.id)}/similar?limit=${limit}`,
+    );
+    return items.map(mapListing);
+  } catch {
+    return mockListings
+      .filter((l) => l.category === listing.category && l.id !== listing.id && !l.isSoldOut)
+      .slice(0, limit);
+  }
+}
+
+/** Listings by id, in the order given — a device's saved favourites. */
+export async function getListingsByIds(ids: string[]): Promise<Listing[]> {
+  const wanted = ids.filter((id) => /^\d+$/.test(id)).slice(0, 100);
+  let found: Listing[] = [];
+  if (wanted.length && API_URL) {
+    try {
+      const res = await request<ApiPage>(
+        `/api/listings?ids=${wanted.join(',')}&include_sold=true&per_page=100`,
+      );
+      found = res.items.map(mapListing);
+    } catch {
+      found = [];
+    }
+  }
+  const demo = mockListings.filter((l) => ids.includes(l.id));
+  const byId = new Map([...found, ...demo].map((l) => [l.id, l]));
+  return ids.map((id) => byId.get(id)).filter((l): l is Listing => Boolean(l));
+}
+
+export async function getSellerProfile(id: string): Promise<DataResult<SellerProfile | null>> {
+  try {
+    const s = await request<ApiSellerProfile>(`/api/sellers/${encodeURIComponent(id)}`);
+    return {
+      data: {
+        id: String(s.id),
+        fullName: s.full_name || s.username || 'Dehqon',
+        phone: s.phone || undefined,
+        telegramUsername: s.username || undefined,
+        village: s.village || undefined,
+        region: s.region || undefined,
+        regionLabel: s.region_label || undefined,
+        activeListings: s.active_listings,
+        totalListings: s.total_listings,
+        memberSince: s.member_since || undefined,
+      },
+      isDemo: false,
+    };
+  } catch (error) {
+    if (error instanceof ApiError && (error.status === 404 || error.status === 422)) {
+      return { data: null, isDemo: false };
+    }
+    const theirs = mockListings.filter((l) => l.seller?.id === id);
+    const seller = theirs[0]?.seller;
+    if (!seller) return { data: null, isDemo: true };
+    return {
+      data: {
+        ...seller,
+        activeListings: theirs.filter((l) => !l.isSoldOut).length,
+        totalListings: theirs.length,
+      },
+      isDemo: true,
+    };
+  }
+}
+
+export async function getSellerListings(
+  sellerId: string,
+  page = 1,
+): Promise<DataResult<ListingPage>> {
+  try {
+    const res = await request<ApiPage>(
+      `/api/listings?seller_id=${encodeURIComponent(sellerId)}&page=${page}&per_page=${PAGE_SIZE}`,
+    );
+    return { data: mapPage(res), isDemo: false };
+  } catch {
+    const theirs = mockListings.filter((l) => l.seller?.id === sellerId && !l.isSoldOut);
+    return { data: paginate(theirs, page, PAGE_SIZE), isDemo: true };
   }
 }
 
@@ -308,6 +535,21 @@ export async function getStats(): Promise<DataResult<MarketStats>> {
       isDemo: true,
     };
   }
+}
+
+/** Every active listing id, for the sitemap. Capped — a sitemap is not a dump. */
+export async function getSitemapListings(max = 1000): Promise<{ id: string; createdAt: string }[]> {
+  const out: { id: string; createdAt: string }[] = [];
+  try {
+    for (let page = 1; out.length < max; page += 1) {
+      const res = await request<ApiPage>(`/api/listings?page=${page}&per_page=100`);
+      out.push(...res.items.map((l) => ({ id: String(l.id), createdAt: l.created_at })));
+      if (page >= res.pages) break;
+    }
+  } catch {
+    /* no backend — the sitemap lists the static pages only */
+  }
+  return out.slice(0, max);
 }
 
 // --------------------------------------------------------------------------- //
@@ -401,56 +643,118 @@ export async function updateProfile(
   return mapSeller(res.user) ?? null;
 }
 
+/** Ends this browser's session only — the phone app stays signed in. */
+export async function logout(token: string): Promise<void> {
+  try {
+    await request<{ ok: boolean }>('/api/auth/logout', { method: 'POST', token });
+  } catch {
+    /* an expired token is already logged out */
+  }
+}
+
+// --------------------------------------------------------------------------- //
+//  Favourites (the same table the bot's ⭐ button writes to)
+// --------------------------------------------------------------------------- //
+export async function getFavoriteIds(token: string): Promise<string[]> {
+  const ids = await request<ApiIdList>('/api/my/favorites/ids', { token });
+  return ids.map(String);
+}
+
+export async function addFavorite(token: string, id: string): Promise<void> {
+  await request<void>(`/api/my/favorites/${encodeURIComponent(id)}`, { method: 'PUT', token });
+}
+
+export async function removeFavorite(token: string, id: string): Promise<void> {
+  await request<void>(`/api/my/favorites/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+    token,
+  });
+}
+
+/** Push a device's favourites into the account; returns the merged set. */
+export async function syncFavorites(token: string, ids: string[]): Promise<string[]> {
+  const numeric = ids.filter((id) => /^\d+$/.test(id)).map(Number);
+  const merged = await request<ApiIdList>('/api/my/favorites/sync', {
+    method: 'POST',
+    token,
+    body: { ids: numeric },
+  });
+  return merged.map(String);
+}
+
 // --------------------------------------------------------------------------- //
 //  Writes
 // --------------------------------------------------------------------------- //
-export async function uploadPhoto(token: string, file: File): Promise<string> {
-  const form = new FormData();
-  form.append('file', file);
-  const res = await request<{ photo_url: string }>('/api/my/upload', {
-    method: 'POST',
-    token,
-    body: form,
-  });
-  return res.photo_url;
+export interface UploadedPhoto {
+  photoUrl: string;
+  /** Permanent Telegram copy — survives a restart on Render's ephemeral disk. */
+  photoFileId?: string;
 }
 
-export async function createListing(
-  token: string,
-  input: NewListingInput,
-): Promise<Listing> {
+export async function uploadPhoto(token: string, file: File): Promise<UploadedPhoto> {
+  const form = new FormData();
+  form.append('file', file);
+  const res = await request<{ photo_url: string; photo_file_id: string | null }>(
+    '/api/my/upload',
+    { method: 'POST', token, body: form },
+  );
+  return { photoUrl: res.photo_url, photoFileId: res.photo_file_id || undefined };
+}
+
+/** The JSON body the backend's ListingIn / ListingPatch expects. */
+export function listingInputToApi(input: Partial<NewListingInput>): Record<string, unknown> {
+  const body: Record<string, unknown> = {};
+  const unitLabel = input.unit ? unitLabels[input.unit] ?? input.unit : '';
+  if (input.productName !== undefined) body.title = input.productName.trim();
+  if (input.category !== undefined) body.category = input.category;
+  if (input.price !== undefined) body.price = input.price;
+  if (input.unit !== undefined) body.unit = input.unit;
+  if ('quantity' in input) {
+    body.quantity = input.quantity ? `${input.quantity} ${unitLabel}`.trim() : null;
+  }
+  if (input.region !== undefined) body.region = input.region;
+  if ('district' in input) body.district = input.district || null;
+  if ('description' in input) body.description = input.description?.trim() || null;
+  if ('phone' in input) body.phone = input.phone?.trim() || null;
+  if ('telegramUsername' in input) {
+    body.telegram_username = input.telegramUsername?.trim().replace(/^@/, '') || null;
+  }
+  if ('whatsappNumber' in input) body.whatsapp = input.whatsappNumber?.trim() || null;
+  if ('harvestDate' in input) body.harvest_date = input.harvestDate || null;
+  if (input.photoUrl) body.photo_url = input.photoUrl;
+  if (input.photoFileId) body.photo_file_id = input.photoFileId;
+  return body;
+}
+
+export async function createListing(token: string, input: NewListingInput): Promise<Listing> {
   const item = await request<ApiListing>('/api/my/listings', {
     method: 'POST',
     token,
-    body: {
-      title: input.productName,
-      category: toApiCategory(input.category),
-      price: input.pricePerKg,
-      unit: 'kg',
-      quantity: input.quantityKg ? `${input.quantityKg} kg` : null,
-      region: input.region,
-      district: input.district || null,
-      description: input.description || null,
-      phone: input.phone || null,
-      telegram_username: input.telegramUsername || null,
-      whatsapp: input.whatsappNumber || null,
-      harvest_date: input.harvestDate || null,
-      photo_url: input.photoUrl || null,
-    },
+    body: listingInputToApi(input),
+  });
+  return mapListing(item);
+}
+
+/** Edit any field of a listing the caller owns (admins: any listing). */
+export async function updateListing(
+  token: string,
+  id: string,
+  input: Partial<NewListingInput>,
+): Promise<Listing> {
+  const item = await request<ApiListing>(`/api/my/listings/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    token,
+    body: listingInputToApi(input),
   });
   return mapListing(item);
 }
 
 export async function getMyListings(token: string): Promise<Listing[]> {
-  const items = await request<ApiListing[]>('/api/my/listings', { token });
+  const items = await request<ApiListingList>('/api/my/listings', { token });
   return items.map(mapListing);
 }
 
-export async function setListingSold(
-  token: string,
-  id: string,
-  sold: boolean,
-): Promise<Listing> {
+export async function setListingSold(token: string, id: string, sold: boolean): Promise<Listing> {
   const item = await request<ApiListing>(`/api/my/listings/${encodeURIComponent(id)}`, {
     method: 'PATCH',
     token,
@@ -467,7 +771,7 @@ export async function deleteListing(token: string, id: string): Promise<void> {
 }
 
 // --------------------------------------------------------------------------- //
-//  Contact analytics
+//  Contact analytics + reports
 // --------------------------------------------------------------------------- //
 export type ContactChannel = 'call' | 'telegram' | 'whatsapp';
 
@@ -478,13 +782,9 @@ export type ContactChannel = 'call' | 'telegram' | 'whatsapp';
  * must never surface an error — a failed analytics ping is not the buyer's
  * problem. `sendBeacon` survives the page being replaced by the phone app,
  * which a normal request often does not; `keepalive` is the fallback.
- *
- * Lives here rather than in the component so `lib/api.ts` stays the only place
- * in the app that talks to the network — which is what makes the backend
- * swappable in one file.
  */
 export function reportContact(listingId: string, channel: ContactChannel): void {
-  if (!listingId || !API_URL) return;
+  if (!listingId || !API_URL || listingId.startsWith('demo-')) return;
   const url = `${API_URL}/api/listings/${encodeURIComponent(listingId)}/contact?channel=${channel}`;
   try {
     if (typeof navigator !== 'undefined' && 'sendBeacon' in navigator) {
@@ -495,6 +795,20 @@ export function reportContact(listingId: string, channel: ContactChannel): void 
   } catch {
     /* analytics must never break a phone call */
   }
+}
+
+/** Flag a listing for the founder. Anonymous — buyers never register. */
+export async function reportListing(
+  listingId: string,
+  reason: ReportReason,
+  note?: string,
+  token?: string | null,
+): Promise<void> {
+  await request<{ ok: boolean }>(`/api/listings/${encodeURIComponent(listingId)}/report`, {
+    method: 'POST',
+    token,
+    body: { reason, note: note?.trim() || null },
+  });
 }
 
 // --------------------------------------------------------------------------- //
@@ -514,6 +828,7 @@ export interface AdminDashboard {
     contacts: number;
     contactsWeek: number;
     listingsWeek: number;
+    openReports: number;
   };
   byCategory: AdminKeyCount[];
   byRegion: AdminKeyCount[];
@@ -531,6 +846,7 @@ interface ApiDashboard {
     contacts: number;
     contacts_week: number;
     listings_week: number;
+    open_reports?: number;
   };
   by_category: AdminKeyCount[];
   by_region: AdminKeyCount[];
@@ -550,6 +866,7 @@ export async function getAdminDashboard(token: string): Promise<AdminDashboard> 
       contacts: d.totals.contacts,
       contactsWeek: d.totals.contacts_week,
       listingsWeek: d.totals.listings_week,
+      openReports: d.totals.open_reports ?? 0,
     },
     byCategory: d.by_category ?? [],
     byRegion: d.by_region ?? [],
@@ -594,21 +911,9 @@ export async function createAdminListing(
     method: 'POST',
     token,
     body: {
+      ...listingInputToApi({ ...input, phone: input.phone || input.sellerPhone }),
       seller_name: input.sellerName || null,
       seller_phone: input.sellerPhone,
-      title: input.productName,
-      category: toApiCategory(input.category),
-      price: input.pricePerKg,
-      unit: 'kg',
-      quantity: input.quantityKg ? `${input.quantityKg} kg` : null,
-      region: input.region,
-      district: input.district || null,
-      description: input.description || null,
-      phone: input.phone || input.sellerPhone,
-      telegram_username: input.telegramUsername || null,
-      whatsapp: input.whatsappNumber || null,
-      harvest_date: input.harvestDate || null,
-      photo_url: input.photoUrl || null,
     },
   });
   return mapListing(item);
@@ -621,8 +926,24 @@ export async function deleteAdminListing(token: string, id: string): Promise<voi
   });
 }
 
+export async function getReports(
+  token: string,
+  status: 'open' | 'resolved' | '' = 'open',
+): Promise<Report[]> {
+  const rows = await request<ApiReportList>(`/api/admin/reports?status=${status}`, { token });
+  return rows.map(mapReport);
+}
+
+export async function resolveReport(token: string, id: number): Promise<void> {
+  await request<ApiReport>(`/api/admin/reports/${id}`, {
+    method: 'PATCH',
+    token,
+    body: { status: 'resolved' },
+  });
+}
+
 // --------------------------------------------------------------------------- //
-//  Client-side search / filter / sort
+//  Client-side search / filter / sort — demo data, and the tests' reference
 // --------------------------------------------------------------------------- //
 export function isListedToday(iso: string): boolean {
   if (!iso) return false;
@@ -637,17 +958,17 @@ export function isListedToday(iso: string): boolean {
 }
 
 /**
- * Applies the homepage filters in one pass.
+ * The feed filters, applied in memory.
  *
- * `nearest` has no GPS to work with, so it means "listings in the selected
- * region first, then everything else" — with Samarkand as the default home
- * region, since that is where the project starts.
+ * The live site asks the database (`getListingsPage`). This is what runs on the
+ * demo data, and it implements the same rules so the demo behaves like the
+ * real thing.
  */
 export function applyFilters(listings: Listing[], filters: ListingFilters): Listing[] {
   const { query, category, region, district, sort = 'newest' } = filters;
   const needle = query?.trim().toLowerCase();
 
-  let result = listings.filter((listing) => {
+  const result = listings.filter((listing) => {
     if (category && category !== 'all' && listing.category !== category) return false;
     if (region && region !== 'all' && listing.region !== region) return false;
     if (district && district !== 'all' && listing.district !== district) return false;
@@ -669,23 +990,48 @@ export function applyFilters(listings: Listing[], filters: ListingFilters): List
     return true;
   });
 
-  const homeRegion = region && region !== 'all' ? region : 'samarkand';
+  const newest = (a: Listing, b: Listing) =>
+    new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
 
-  result = [...result].sort((a, b) => {
+  return [...result].sort((a, b) => {
     switch (sort) {
       case 'cheapest':
-        return a.pricePerKg - b.pricePerKg;
-      case 'nearest': {
-        const rank = (l: Listing) => (l.region === homeRegion ? 0 : 1);
-        const diff = rank(a) - rank(b);
-        if (diff !== 0) return diff;
-        return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
-      }
+        return a.price - b.price || newest(a, b);
+      case 'expensive':
+        return b.price - a.price || newest(a, b);
+      case 'popular':
+        return (b.views ?? 0) - (a.views ?? 0) || newest(a, b);
       case 'newest':
       default:
-        return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+        return newest(a, b);
     }
   });
+}
 
-  return result;
+/** The same counts `/api/facets` returns, computed over a list. */
+export function computeFacets(listings: Listing[], region?: string): Facets {
+  const active = listings.filter((l) => !l.isSoldOut);
+  const count = (keys: (string | undefined)[]) =>
+    keys.reduce<Record<string, number>>((acc, key) => {
+      if (key) acc[key] = (acc[key] ?? 0) + 1;
+      return acc;
+    }, {});
+  const scoped = region && region !== 'all' ? active.filter((l) => l.region === region) : active;
+  return {
+    total: active.length,
+    categories: count(active.map((l) => l.category)),
+    regions: count(active.map((l) => l.region)),
+    districts: count(scoped.map((l) => l.district)),
+  };
+}
+
+export function paginate(listings: Listing[], page: number, perPage: number): ListingPage {
+  const pages = Math.max(1, Math.ceil(listings.length / perPage));
+  const start = (Math.max(1, page) - 1) * perPage;
+  return {
+    items: listings.slice(start, start + perPage),
+    total: listings.length,
+    page,
+    pages,
+  };
 }

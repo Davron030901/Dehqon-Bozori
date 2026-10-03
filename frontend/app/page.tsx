@@ -1,17 +1,25 @@
 import Link from 'next/link';
+import { Smartphone } from 'lucide-react';
 
 import AutoRefresh from '@/components/AutoRefresh';
 import HomeFeed from '@/components/HomeFeed';
-import { getListings, getStats } from '@/lib/api';
+import { ANDROID_APP_URL, filtersFromSearch, getFacets, getListingsPage, getStats } from '@/lib/api';
 import { strings } from '@/lib/strings';
 
 // Listings change all day long — never serve a stale bazaar.
 export const dynamic = 'force-dynamic';
 
-export default async function HomePage() {
-  const [{ data: listings, isDemo }, { data: stats }] = await Promise.all([
-    getListings(),
+type PageProps = { searchParams: Record<string, string | string[] | undefined> };
+
+export default async function HomePage({ searchParams }: PageProps) {
+  // The filters are in the URL, so a filtered view is a link a trader can
+  // forward in Telegram — and the database, not the browser, does the work.
+  const filters = filtersFromSearch(searchParams);
+
+  const [{ data: page, isDemo }, { data: stats }, { data: facets }] = await Promise.all([
+    getListingsPage(filters),
     getStats(),
+    getFacets(filters.region),
   ]);
 
   return (
@@ -54,14 +62,12 @@ export default async function HomePage() {
         )}
       </section>
 
-      <HomeFeed listings={listings} />
+      <HomeFeed initial={page} filters={filters} facets={facets} />
 
       <section className="mb-8 rounded-2xl border border-primary-200 bg-primary-50 px-5 py-6 text-center">
-        <p className="text-lg font-extrabold text-primary-800">
-          Hosilingiz bormi? O’zingiz soting.
-        </p>
+        <p className="text-lg font-extrabold text-primary-800">{strings.home.sellCtaTitle}</p>
         <p className="mx-auto mt-1.5 max-w-md text-sm text-primary-700">
-          Bir daqiqada e’lon joylang — xaridor sizga to’g’ridan-to’g’ri qo’ng’iroq qiladi.
+          {strings.home.sellCtaBody}
         </p>
         <div className="mt-4 flex flex-wrap justify-center gap-2.5">
           <Link href="/sotuvchi/elon-qoshish" className="btn-primary">
@@ -70,6 +76,12 @@ export default async function HomePage() {
           <Link href="/sotuvchi/royxatdan-otish" className="btn-ghost">
             {strings.nav.register}
           </Link>
+          {ANDROID_APP_URL && (
+            <a href={ANDROID_APP_URL} className="btn-ghost" rel="noopener noreferrer">
+              <Smartphone size={18} aria-hidden="true" />
+              {strings.home.appCta}
+            </a>
+          )}
         </div>
       </section>
     </div>

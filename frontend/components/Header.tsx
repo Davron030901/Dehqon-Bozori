@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { LayoutGrid, Plus } from 'lucide-react';
+import { Heart, LayoutGrid, Plus } from 'lucide-react';
 
 import { strings } from '@/lib/strings';
 
@@ -27,6 +27,19 @@ export default function Header() {
 
         <nav className="flex items-center gap-2">
           <Link
+            href="/saqlangan"
+            aria-label={strings.nav.favorites}
+            className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-2 text-sm font-semibold transition ${
+              pathname === '/saqlangan'
+                ? 'border-primary-200 bg-primary-50 text-primary-700'
+                : 'border-sand-200 bg-white text-ink hover:border-primary-200'
+            }`}
+          >
+            <Heart size={16} aria-hidden="true" />
+            <span className="hidden md:inline">{strings.nav.favorites}</span>
+          </Link>
+
+          <Link
             href="/sotuvchi/kabinet"
             aria-label={strings.nav.cabinet}
             className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-2 text-sm font-semibold transition ${
@@ -45,7 +58,7 @@ export default function Header() {
           >
             <Plus size={16} aria-hidden="true" />
             <span className="hidden sm:inline">{strings.nav.sell}</span>
-            <span className="sm:hidden">E’lon</span>
+            <span className="sm:hidden">{strings.nav.sellShort}</span>
           </Link>
         </nav>
       </div>

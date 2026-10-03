@@ -1,7 +1,7 @@
 'use client';
 
 import { Search, X } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import { strings } from '@/lib/strings';
 
@@ -13,17 +13,29 @@ export default function SearchBar({
   onChange: (next: string) => void;
 }) {
   const [draft, setDraft] = useState(value);
+  // What this box last sent upward. The search runs on the server now, so
+  // `value` comes back a moment later — while the buyer may already have typed
+  // more. Only a value that did NOT come from here (a reset, the back button)
+  // may overwrite what is in the box.
+  const lastSent = useRef(value);
 
-  // Keep the box in sync when the parent resets filters.
   useEffect(() => {
-    setDraft(value);
+    if (value !== lastSent.current) {
+      lastSent.current = value;
+      setDraft(value);
+    }
   }, [value]);
 
-  // Debounce so a slow phone is not re-filtering on every keystroke.
+  function send(next: string) {
+    lastSent.current = next;
+    onChange(next);
+  }
+
+  // Debounce so a slow connection is not asked for a page on every keystroke.
   useEffect(() => {
     const timer = setTimeout(() => {
-      if (draft !== value) onChange(draft);
-    }, 250);
+      if (draft !== lastSent.current) send(draft);
+    }, 400);
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [draft]);
@@ -33,7 +45,7 @@ export default function SearchBar({
       role="search"
       onSubmit={(event) => {
         event.preventDefault();
-        onChange(draft);
+        send(draft);
       }}
       className="relative"
     >
@@ -58,7 +70,7 @@ export default function SearchBar({
           aria-label={strings.search.clear}
           onClick={() => {
             setDraft('');
-            onChange('');
+            send('');
           }}
           className="absolute right-2.5 top-1/2 -translate-y-1/2 rounded-full p-1.5 text-muted transition hover:bg-sand-100 hover:text-ink"
         >

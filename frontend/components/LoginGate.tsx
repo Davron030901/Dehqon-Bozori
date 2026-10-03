@@ -4,6 +4,7 @@ import { Send } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 
 import { API_URL, pollTelegramLogin, startTelegramLogin } from '@/lib/api';
+import { mergeFavoritesAfterLogin } from '@/lib/favorites';
 import { setToken } from '@/lib/session';
 
 /**
@@ -54,6 +55,9 @@ export default function LoginGate({
           if (result.status === 'ok' && result.token) {
             if (timer.current) clearInterval(timer.current);
             setToken(result.token);
+            // Hearts tapped before signing in join the account now, so they
+            // also show up in the bot's ⭐ list and the mobile app.
+            await mergeFavoritesAfterLogin();
             onSignedIn();
           } else if (result.status === 'expired') {
             if (timer.current) clearInterval(timer.current);

@@ -1,15 +1,27 @@
 import { describe, expect, it } from 'vitest';
 
-import { applyFilters, isListedToday, toApiCategory } from '@/lib/api';
-import type { Listing, ListingCategory } from '@/lib/types';
+import {
+  applyFilters,
+  computeFacets,
+  filtersFromSearch,
+  filtersToApiParams,
+  filtersToSearch,
+  isListedToday,
+  listingInputToApi,
+  paginate,
+  quantityNumber,
+} from '@/lib/api';
+import type { Listing } from '@/lib/types';
 
 /** Minimal listing — only the fields the filter/sort logic actually reads. */
 function listing(overrides: Partial<Listing> & { id: string }): Listing {
   return {
     productName: 'Pomidor',
-    category: 'sabzavotlar',
-    pricePerKg: 5000,
-    quantityKg: 100,
+    category: 'vegetables',
+    price: 5000,
+    unit: 'kg',
+    unitLabel: 'kg',
+    quantity: '100 kg',
     village: 'Chorbog’',
     district: 'Urgut',
     region: 'samarkand',
@@ -24,24 +36,24 @@ const CATALOGUE: Listing[] = [
   listing({
     id: '1',
     productName: 'Pomidor',
-    category: 'sabzavotlar',
-    pricePerKg: 5000,
+    category: 'vegetables',
+    price: 5000,
     region: 'samarkand',
     createdAt: '2026-07-01T10:00:00.000Z',
   }),
   listing({
     id: '2',
     productName: 'Uzum',
-    category: 'mevalar',
-    pricePerKg: 12000,
+    category: 'fruits',
+    price: 12000,
     region: 'samarkand',
     createdAt: '2026-07-05T10:00:00.000Z',
   }),
   listing({
     id: '3',
     productName: 'Bug’doy',
-    category: 'don',
-    pricePerKg: 3000,
+    category: 'grains',
+    price: 3000,
     region: 'bukhara',
     createdAt: '2026-07-10T10:00:00.000Z',
     description: 'Toza, quruq bug’doy',
@@ -49,8 +61,8 @@ const CATALOGUE: Listing[] = [
   listing({
     id: '4',
     productName: 'Olma',
-    category: 'mevalar',
-    pricePerKg: 8000,
+    category: 'fruits',
+    price: 8000,
     region: 'fergana',
     district: 'Quva',
     createdAt: '2026-07-03T10:00:00.000Z',
@@ -59,7 +71,7 @@ const CATALOGUE: Listing[] = [
 
 describe('applyFilters — category', () => {
   it('keeps only the chosen category', () => {
-    const result = applyFilters(CATALOGUE, { category: 'mevalar' });
+    const result = applyFilters(CATALOGUE, { category: 'fruits' });
     expect(result.map((l) => l.id).sort()).toEqual(['2', '4']);
   });
 
@@ -76,7 +88,7 @@ describe('applyFilters — region', () => {
   });
 
   it('combines with the category filter rather than replacing it', () => {
-    const result = applyFilters(CATALOGUE, { category: 'mevalar', region: 'fergana' });
+    const result = applyFilters(CATALOGUE, { category: 'fruits', region: 'fergana' });
     expect(result.map((l) => l.id)).toEqual(['4']);
   });
 });
@@ -155,16 +167,22 @@ describe('applyFilters — sorting', () => {
     ]);
   });
 
-  it('"nearest" puts the home region first, then falls back to newest', () => {
-    // No GPS in Phase 1 — "nearest" means "same region", Samarkand by default.
-    const result = applyFilters(CATALOGUE, { sort: 'nearest' });
-    expect(result.slice(0, 2).map((l) => l.id)).toEqual(['2', '1']);
-    expect(result.slice(2).map((l) => l.id)).toEqual(['3', '4']);
+  it('most expensive first when asked', () => {
+    expect(applyFilters(CATALOGUE, { sort: 'expensive' }).map((l) => l.id)).toEqual([
+      '2',
+      '4',
+      '1',
+      '3',
+    ]);
   });
 
-  it('honours an explicitly selected region as "home"', () => {
-    const result = applyFilters(CATALOGUE, { region: 'all', sort: 'nearest' });
-    expect(result.slice(0, 2).map((l) => l.id)).toEqual(['2', '1']);
+  it('most viewed first for "popular", newest breaking ties', () => {
+    const viewed = [
+      listing({ id: 'a', views: 3, createdAt: '2026-07-01T10:00:00.000Z' }),
+      listing({ id: 'b', views: 50, createdAt: '2026-07-02T10:00:00.000Z' }),
+      listing({ id: 'c', views: 3, createdAt: '2026-07-09T10:00:00.000Z' }),
+    ];
+    expect(applyFilters(viewed, { sort: 'popular' }).map((l) => l.id)).toEqual(['b', 'c', 'a']);
   });
 
   it('does not mutate the array it was given', () => {
@@ -192,20 +210,135 @@ describe('isListedToday', () => {
   });
 });
 
-describe('toApiCategory', () => {
-  it('maps every UI category to a slug the backend catalogue knows', () => {
-    const pairs: [ListingCategory, string][] = [
-      ['sabzavotlar', 'vegetables'],
-      ['mevalar', 'fruits'],
-      ['don', 'grains'],
-      ['sut_mahsulotlari', 'dairy'],
-      ['yongoqlar', 'dried'],
-      ['boshqa', 'other'],
-    ];
-    for (const [ui, api] of pairs) expect(toApiCategory(ui)).toBe(api);
+describe('filters <-> URL', () => {
+  it('writes only what differs from the defaults', () => {
+    expect(filtersToSearch({})).toBe('');
+    expect(filtersToSearch({ category: 'all', region: 'all', sort: 'newest' })).toBe('');
+    expect(filtersToSearch({ category: 'honey', sort: 'cheapest' })).toBe(
+      '?category=honey&sort=cheapest',
+    );
   });
 
-  it('falls back to "other" rather than sending an unknown slug', () => {
-    expect(toApiCategory('nonsense' as ListingCategory)).toBe('other');
+  it('drops a district when no region is chosen', () => {
+    expect(filtersToSearch({ district: 'urgut' })).toBe('');
+    expect(filtersToSearch({ region: 'samarkand', district: 'urgut' })).toBe(
+      '?region=samarkand&district=urgut',
+    );
+  });
+
+  it('round-trips through the address bar', () => {
+    const filters = {
+      query: 'pomidor',
+      category: 'vegetables' as const,
+      region: 'samarkand',
+      district: 'urgut',
+      sort: 'popular' as const,
+    };
+    const search = Object.fromEntries(new URLSearchParams(filtersToSearch(filters)));
+    expect(filtersFromSearch(search)).toEqual(filters);
+  });
+
+  it('ignores junk in the URL instead of sending it to the API', () => {
+    const parsed = filtersFromSearch({
+      category: 'spaceships',
+      sort: 'random',
+      region: '<script>',
+      district: 'urgut',
+    });
+    expect(parsed).toEqual({
+      query: '',
+      category: 'all',
+      region: 'all',
+      // A district means nothing without a valid region.
+      district: 'all',
+      sort: 'newest',
+    });
+    expect(filtersToApiParams(parsed).has('district')).toBe(false);
+  });
+
+  it('maps sort keys onto the API vocabulary', () => {
+    expect(filtersToApiParams({ sort: 'cheapest' }).get('sort')).toBe('price_asc');
+    expect(filtersToApiParams({ sort: 'expensive' }).get('sort')).toBe('price_desc');
+    expect(filtersToApiParams({ sort: 'popular' }).get('sort')).toBe('popular');
+    expect(filtersToApiParams({}).get('sort')).toBe('new');
+  });
+
+  it('asks for the right page', () => {
+    const params = filtersToApiParams({ query: ' asal ' }, 3, 24);
+    expect(params.get('q')).toBe('asal');
+    expect(params.get('page')).toBe('3');
+    expect(params.get('per_page')).toBe('24');
+  });
+});
+
+describe('computeFacets', () => {
+  it('counts active listings per category and region', () => {
+    const facets = computeFacets([...CATALOGUE, listing({ id: 's', isSoldOut: true })]);
+    expect(facets.total).toBe(4);
+    expect(facets.categories).toEqual({ vegetables: 1, fruits: 2, grains: 1 });
+    expect(facets.regions).toEqual({ samarkand: 2, bukhara: 1, fergana: 1 });
+  });
+
+  it('scopes district counts to the chosen region', () => {
+    expect(computeFacets(CATALOGUE, 'fergana').districts).toEqual({ Quva: 1 });
+  });
+});
+
+describe('paginate', () => {
+  it('slices pages and reports how many there are', () => {
+    const page = paginate(CATALOGUE, 2, 3);
+    expect(page.items.map((l) => l.id)).toEqual(['4']);
+    expect(page).toMatchObject({ total: 4, page: 2, pages: 2 });
+  });
+
+  it('never reports zero pages', () => {
+    expect(paginate([], 1, 24).pages).toBe(1);
+  });
+});
+
+describe('quantityNumber', () => {
+  it('pulls the number out of free text', () => {
+    expect(quantityNumber('500 kg')).toBe(500);
+    expect(quantityNumber('1,5 tonna')).toBe(1.5);
+    expect(quantityNumber('40 litr')).toBe(40);
+  });
+
+  it('returns undefined when there is no usable number', () => {
+    expect(quantityNumber(null)).toBeUndefined();
+    expect(quantityNumber('ko‘p')).toBeUndefined();
+    expect(quantityNumber('0 kg')).toBeUndefined();
+  });
+});
+
+describe('listingInputToApi', () => {
+  it('writes the quantity with its unit, as the bot does', () => {
+    const body = listingInputToApi({
+      productName: ' Asal ',
+      category: 'honey',
+      price: 90000,
+      unit: 'liter',
+      quantity: 40,
+      region: 'jizzakh',
+      district: 'zomin',
+      telegramUsername: '@asalchi',
+    });
+    expect(body).toMatchObject({
+      title: 'Asal',
+      category: 'honey',
+      unit: 'liter',
+      quantity: '40 litr',
+      district: 'zomin',
+      telegram_username: 'asalchi',
+    });
+  });
+
+  it('sends null to clear an optional field, and omits what was not given', () => {
+    const body = listingInputToApi({ district: '', description: '  ' });
+    expect(body).toEqual({ district: null, description: null });
+  });
+
+  it('passes the archived Telegram photo id along with the upload URL', () => {
+    const body = listingInputToApi({ photoUrl: '/media/uploads/a.jpg', photoFileId: 'AgAC' });
+    expect(body).toEqual({ photo_url: '/media/uploads/a.jpg', photo_file_id: 'AgAC' });
   });
 });

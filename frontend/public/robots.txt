@@ -1,5 +1,0 @@
-User-agent: *
-Allow: /
-Disallow: /sotuvchi/kabinet
-
-# Buyers should find listings in search; the seller's private cabinet should not.

@@ -1,129 +1,162 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { usePathname, useRouter } from 'next/navigation';
+import { useEffect, useMemo, useState, useTransition } from 'react';
 
 import CategoryChips, { type CategoryValue } from '@/components/CategoryChips';
-import FilterBar from '@/components/FilterBar';
+import FilterBar, { type FilterOption } from '@/components/FilterBar';
 import ProductGrid from '@/components/ProductGrid';
 import SearchBar from '@/components/SearchBar';
-import { applyFilters } from '@/lib/api';
+import { filtersToSearch, getListingsPage } from '@/lib/api';
 import { DISTRICT_TO_REGION, districtsOf } from '@/lib/districts';
-import { regionLabel, strings } from '@/lib/strings';
-import type { Listing, SortKey } from '@/lib/types';
+import { regionLabel, regions, strings } from '@/lib/strings';
+import type { Facets, Listing, ListingFilters, ListingPage, SortKey } from '@/lib/types';
 
 /**
  * The interactive half of the homepage.
  *
- * Listings arrive already fetched from the server component, so the first
- * paint needs no JavaScript round-trip. Search, filter and sort then all run
- * locally — instant on a slow connection, and no extra requests.
+ * The filters live in the URL (`/?category=honey&region=samarkand`), and the
+ * server component fetches exactly that page from the database. So a filtered
+ * view can be shared in Telegram, the back button works, and the browser never
+ * downloads the whole bazaar to show 24 listings of it.
+ *
+ * The "load more" button appends the next page from the client; changing a
+ * filter starts again from page one.
  */
-export default function HomeFeed({ listings }: { listings: Listing[] }) {
-  const [query, setQuery] = useState('');
-  const [category, setCategory] = useState<CategoryValue>('all');
-  const [region, setRegion] = useState<string>('all');
-  const [district, setDistrict] = useState<string>('all');
-  const [sort, setSort] = useState<SortKey>('newest');
+export default function HomeFeed({
+  initial,
+  filters,
+  facets,
+}: {
+  initial: ListingPage;
+  filters: Required<ListingFilters>;
+  facets: Facets;
+}) {
+  const router = useRouter();
+  const pathname = usePathname();
+  const [pending, startTransition] = useTransition();
+  const [extra, setExtra] = useState<Listing[]>([]);
+  const [page, setPage] = useState(1);
+  const [loadingMore, setLoadingMore] = useState(false);
 
-  // Only offer regions that actually have listings, so no filter is a dead end.
-  const availableRegions = useMemo(() => {
-    const keys = Array.from(new Set(listings.map((l) => l.region)));
-    return keys
-      .map((key) => ({ key, label: regionLabel(key) }))
-      .sort((a, b) => a.label.localeCompare(b.label, 'uz'));
-  }, [listings]);
+  const filterKey = filtersToSearch(filters);
+
+  // A new filter is a new list — drop whatever "load more" had appended.
+  useEffect(() => {
+    setExtra([]);
+    setPage(1);
+  }, [filterKey]);
+
+  function navigate(next: ListingFilters) {
+    startTransition(() => {
+      router.replace(`${pathname}${filtersToSearch(next)}`, { scroll: false });
+    });
+  }
+
+  async function loadMore() {
+    setLoadingMore(true);
+    const { data } = await getListingsPage(filters, page + 1);
+    setExtra((current) => [...current, ...data.items]);
+    setPage(page + 1);
+    setLoadingMore(false);
+  }
+
+  // Auto-refresh re-renders page one underneath us; de-duplicate so a listing
+  // that slid onto page two is not shown twice.
+  const items = useMemo(() => {
+    const seen = new Set<string>();
+    return [...initial.items, ...extra].filter((item) => {
+      if (seen.has(item.id)) return false;
+      seen.add(item.id);
+      return true;
+    });
+  }, [initial.items, extra]);
+
+  // The order of `regions` in strings.ts, Samarkand first — not a locale sort.
+  // `localeCompare(…, 'uz')` orders "Toshkent shahri" and "Toshkent viloyati"
+  // differently in Node's ICU and in Chrome's, and the server-rendered list
+  // then fails to hydrate.
+  const availableRegions = useMemo<FilterOption[]>(() => {
+    return regions
+      .filter((r) => (facets.regions[r.key] ?? 0) > 0 || r.key === filters.region)
+      .map((r) => ({ key: r.key, label: r.label, count: facets.regions[r.key] }));
+  }, [facets.regions, filters.region]);
 
   /**
-   * Districts of the selected region that actually have something for sale.
-   *
-   * Deliberately empty while "all regions" is selected — 205 districts in one
-   * dropdown is not a filter, and the buyer would have no way to tell which of
-   * them has produce today.
-   *
-   * Ordered the way districts.ts orders them (cities first), not
-   * alphabetically: a trader looking for "Samarqand shahri" should not have to
-   * scroll past thirteen villages to find it.
+   * Districts of the chosen region that have produce today, cities first (the
+   * order districts.ts uses — a trader looking for "Samarqand shahri" should
+   * not scroll past thirteen villages). Listings from before the district
+   * picker hold free text; they still get an entry under what the seller typed.
    */
-  const availableDistricts = useMemo(() => {
-    if (region === 'all') return [];
-    const present = new Set(
-      listings.filter((l) => l.region === region && l.district).map((l) => l.district),
-    );
-    const known = districtsOf(region)
-      .filter((item) => present.has(item.key))
-      .map((item) => ({ key: item.key, label: item.label }));
-
-    // Listings from before the district picker hold free text. They are still
-    // real produce, so they get an entry under whatever the seller typed.
-    const legacy = Array.from(present)
-      .filter((key) => key && !DISTRICT_TO_REGION[key])
-      .map((key) => ({ key: key as string, label: key as string }))
-      .sort((a, b) => a.label.localeCompare(b.label, 'uz'));
-
+  const availableDistricts = useMemo<FilterOption[]>(() => {
+    if (filters.region === 'all') return [];
+    const counts = facets.districts;
+    const known = districtsOf(filters.region)
+      .filter((d) => (counts[d.key] ?? 0) > 0 || d.key === filters.district)
+      .map((d) => ({ key: d.key, label: d.label, count: counts[d.key] }));
+    const legacy = Object.keys(counts)
+      .filter((key) => !DISTRICT_TO_REGION[key])
+      .map((key) => ({ key, label: key, count: counts[key] }))
+      // Code-point order: identical on the server and in every browser.
+      .sort((a, b) => (a.label < b.label ? -1 : a.label > b.label ? 1 : 0));
     return [...known, ...legacy];
-  }, [listings, region]);
+  }, [facets.districts, filters.region, filters.district]);
 
-  const hasOther = useMemo(() => listings.some((l) => l.category === 'boshqa'), [listings]);
-
-  const visible = useMemo(
-    () => applyFilters(listings, { query, category, region, district, sort }),
-    [listings, category, district, query, region, sort],
-  );
-
-  const isDirty =
-    query !== '' ||
-    category !== 'all' ||
-    region !== 'all' ||
-    district !== 'all' ||
-    sort !== 'newest';
-
-  // Changing region must clear the district, or the buyer is left filtering
-  // Samarkand listings by a Fergana district and sees an empty grid.
-  function changeRegion(next: string) {
-    setRegion(next);
-    setDistrict('all');
-  }
-
-  function reset() {
-    setQuery('');
-    setCategory('all');
-    setRegion('all');
-    setDistrict('all');
-    setSort('newest');
-  }
+  const isDirty = filterKey !== '';
+  const hasMore = page < initial.pages && items.length < initial.total;
 
   return (
     <>
       <div className="mt-5">
-        <SearchBar value={query} onChange={setQuery} />
+        <SearchBar value={filters.query} onChange={(query) => navigate({ ...filters, query })} />
       </div>
 
       <div className="mt-4">
-        <CategoryChips value={category} onChange={setCategory} showOther={hasOther} />
+        <CategoryChips
+          value={filters.category as CategoryValue}
+          counts={facets.categories}
+          onChange={(category) => navigate({ ...filters, category })}
+        />
       </div>
 
       <div className="mt-3">
         <FilterBar
-          region={region}
-          onRegionChange={changeRegion}
-          district={district}
-          onDistrictChange={setDistrict}
+          region={filters.region}
+          // A new region makes the old district meaningless — clear it, or the
+          // buyer filters Samarkand listings by a Fergana district.
+          onRegionChange={(region) => navigate({ ...filters, region, district: 'all' })}
+          district={filters.district}
+          onDistrictChange={(district) => navigate({ ...filters, district })}
           availableDistricts={availableDistricts}
-          sort={sort}
-          onSortChange={setSort}
-          onReset={reset}
+          sort={filters.sort}
+          onSortChange={(sort: SortKey) => navigate({ ...filters, sort })}
+          onReset={() => navigate({})}
           availableRegions={availableRegions}
           isDirty={isDirty}
         />
       </div>
 
       <p className="mt-4 text-sm text-muted" aria-live="polite">
-        {strings.home.resultsCount(visible.length)}
+        {strings.home.resultsCount(initial.total)}
+        {filters.region !== 'all' && ` · ${regionLabel(filters.region)}`}
       </p>
 
-      <div className="mt-3 pb-4">
-        <ProductGrid listings={visible} />
+      <div className={`mt-3 pb-4 transition-opacity ${pending ? 'opacity-50' : ''}`}>
+        <ProductGrid listings={items} />
       </div>
+
+      {hasMore && (
+        <div className="pb-8 text-center">
+          <button
+            type="button"
+            onClick={() => void loadMore()}
+            disabled={loadingMore}
+            className="btn-ghost min-w-[12rem]"
+          >
+            {loadingMore ? strings.home.loadingMore : strings.home.loadMore}
+          </button>
+        </div>
+      )}
     </>
   );
 }

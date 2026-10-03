@@ -1,25 +1,30 @@
 'use client';
 
-import { categoryLabels, primaryCategories, strings } from '@/lib/strings';
-import type { ListingCategory } from '@/lib/types';
+import { categoryLabels, categoryOrder, strings } from '@/lib/strings';
+import type { CategoryKey } from '@/lib/types';
 
-export type CategoryValue = ListingCategory | 'all';
+export type CategoryValue = CategoryKey | 'all';
 
+/**
+ * The eleven categories the bot offers, as a scrollable chip row.
+ *
+ * With `counts`, a category nobody is selling today is hidden — a chip that
+ * leads to an empty page teaches a buyer the site is empty. The selected one
+ * always stays, so the buyer can see what is filtering their results.
+ */
 export default function CategoryChips({
   value,
   onChange,
-  /** Show the "Boshqa" bucket — only useful when such listings exist. */
-  showOther = false,
+  counts,
 }: {
   value: CategoryValue;
   onChange: (next: CategoryValue) => void;
-  showOther?: boolean;
+  counts?: Record<string, number>;
 }) {
-  const options: CategoryValue[] = [
-    'all',
-    ...primaryCategories,
-    ...(showOther ? (['boshqa'] as CategoryValue[]) : []),
-  ];
+  const visible = categoryOrder.filter(
+    (key) => !counts || (counts[key] ?? 0) > 0 || key === value,
+  );
+  const options: CategoryValue[] = ['all', ...visible];
 
   return (
     <div
@@ -30,6 +35,7 @@ export default function CategoryChips({
       {options.map((option) => {
         const selected = value === option;
         const meta = option === 'all' ? null : categoryLabels[option];
+        const count = option === 'all' || !counts ? undefined : counts[option];
         return (
           <button
             key={option}
@@ -45,7 +51,12 @@ export default function CategoryChips({
           >
             {meta ? (
               <>
-                <span aria-hidden="true">{meta.emoji}</span> {meta.label}
+                <span aria-hidden="true">{meta.emoji}</span> {meta.short}
+                {count ? (
+                  <span className={`ml-1.5 text-xs ${selected ? 'text-white/80' : 'text-muted'}`}>
+                    {count}
+                  </span>
+                ) : null}
               </>
             ) : (
               <>

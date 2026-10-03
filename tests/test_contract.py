@@ -201,27 +201,41 @@ async def main() -> int:
             note(f"API sends {len(extra)} field(s) the frontend ignores: "
                  f"{', '.join(sorted(extra))}")
 
-        # -------------------------------------- category slug translation ----
-        from_api = re.search(r"const FROM_API: Record<string, ListingCategory> = \{(.*?)\}",
-                             api_ts, re.S)
-        assert from_api, "FROM_API map not found in frontend/lib/api.ts"
-        mapped = set(re.findall(r"(\w+):\s*'", from_api.group(1)))
-
+        # ----------------------------------------- category / unit slugs ----
+        # The site uses the backend's own slugs — no translation table — so
+        # the check is direct: the labels it ships must cover the catalogue
+        # exactly, or a listing renders with no name (or a form posts a slug
+        # the backend rejects).
         sys.path.insert(0, str(BACKEND))
-        from app.catalog import CATEGORIES
+        from app.catalog import CATEGORIES, UNITS
 
-        unmapped = set(CATEGORIES) - mapped
-        check("every backend category is mapped by the frontend",
-              not unmapped,
-              f"unmapped: {sorted(unmapped)} — these listings would fall back to 'boshqa'")
-
-        to_api = re.search(r"const TO_API: Record<ListingCategory, string> = \{(.*?)\}",
-                           api_ts, re.S)
-        assert to_api
-        produced = set(re.findall(r":\s*'(\w+)'", to_api.group(1)))
-        invalid = produced - set(CATEGORIES)
+        strings_src = (FRONTEND / "lib" / "strings.ts").read_text(encoding="utf-8")
+        label_block = re.search(r"export const categoryLabels.*?\n\};", strings_src, re.S)
+        assert label_block, "categoryLabels not found in frontend/lib/strings.ts"
+        fe_categories = set(re.findall(r"^\s*([a-z_]+):\s*\{", label_block.group(0), re.M))
+        check("frontend labels every backend category",
+              set(CATEGORIES) <= fe_categories,
+              f"unlabelled: {sorted(set(CATEGORIES) - fe_categories)}")
         check("every category the frontend posts is accepted by the backend",
-              not invalid, f"backend would reject: {sorted(invalid)}")
+              fe_categories <= set(CATEGORIES),
+              f"backend would reject: {sorted(fe_categories - set(CATEGORIES))}")
+
+        emoji_fe = dict(re.findall(r"^\s*([a-z_]+):\s*\{[^}]*emoji:\s*'([^']+)'",
+                                   label_block.group(0), re.M))
+        wrong = [k for k, v in CATEGORIES.items() if emoji_fe.get(k) != v["emoji"]]
+        check("category emoji identical on bot and site", not wrong, str(wrong))
+
+        unit_block = re.search(r"export const unitLabels.*?\n\};", strings_src, re.S)
+        assert unit_block, "unitLabels not found in frontend/lib/strings.ts"
+        fe_units = set(re.findall(r"^\s*([a-z_]+):\s*'", unit_block.group(0), re.M))
+        check("frontend and backend agree on units", fe_units == set(UNITS),
+              f"only fe: {sorted(fe_units - set(UNITS))}, only be: {sorted(set(UNITS) - fe_units)}")
+
+        # Every listing the API returns uses a slug the frontend can label.
+        for listing in page["items"]:
+            check(f"[{listing['title']}] category labelled by the site",
+                  listing["category"] in fe_categories)
+            check(f"[{listing['title']}] unit labelled by the site", listing["unit"] in fe_units)
 
         # ------------------------------------------- region translation -----
         strings_ts = (FRONTEND / "lib" / "strings.ts").read_text(encoding="utf-8")

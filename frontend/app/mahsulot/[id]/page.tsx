@@ -2,12 +2,16 @@ import type { Metadata } from 'next';
 import Image from 'next/image';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { ArrowLeft } from 'lucide-react';
+import { cache } from 'react';
+import { ArrowLeft, ChevronRight } from 'lucide-react';
 
 import Badge from '@/components/Badge';
 import ContactButtons from '@/components/ContactButtons';
+import FavoriteButton from '@/components/FavoriteButton';
 import ProductCard from '@/components/ProductCard';
-import { getListingById, getListings, isListedToday } from '@/lib/api';
+import ReportButton from '@/components/ReportButton';
+import ShareButton from '@/components/ShareButton';
+import { getListingById, getSimilarListings, isListedToday } from '@/lib/api';
 import { formatDate, formatPrice } from '@/lib/format';
 import { categoryLabels, regionLabel, strings } from '@/lib/strings';
 
@@ -15,47 +19,50 @@ export const dynamic = 'force-dynamic';
 
 type PageProps = { params: { id: string } };
 
+/**
+ * One fetch per request, shared by the metadata and the page.
+ *
+ * The backend counts a view on every read, and `cache: 'no-store'` stops Next
+ * from de-duplicating the two calls on its own — so without this every visit
+ * was counted twice, and the seller's numbers were double the truth.
+ */
+const loadListing = cache((id: string) => getListingById(id));
+
 export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
-  const { data: listing } = await getListingById(params.id);
+  const { data: listing } = await loadListing(params.id);
   if (!listing) return { title: strings.detail.notFoundTitle };
 
+  const price = `${formatPrice(listing.price)} ${strings.card.currency}/${listing.unitLabel}`;
   return {
-    title: `${listing.productName} — ${formatPrice(listing.pricePerKg)} so’m`,
+    title: `${listing.productName} — ${price}`,
     description:
-      listing.description ||
-      `${listing.productName}, ${regionLabel(listing.region)}. ${formatPrice(listing.pricePerKg)} so’m/${listing.unitLabel || strings.detail.kg}.`,
+      listing.description || `${listing.productName}, ${regionLabel(listing.region)}. ${price}.`,
     openGraph: listing.photoUrl ? { images: [listing.photoUrl] } : undefined,
   };
 }
 
 export default async function ProductDetailPage({ params }: PageProps) {
-  const { data: listing } = await getListingById(params.id);
+  const { data: listing } = await loadListing(params.id);
   if (!listing) notFound();
 
-  const category = categoryLabels[listing.category];
+  const category = categoryLabels[listing.category] ?? categoryLabels.other;
+  const emoji = listing.categoryEmoji || category.emoji;
   const listedToday = isListedToday(listing.createdAt);
-  const place = [listing.village, listing.district]
+  // `districtLabel`, never the raw slug: "Urgut", not "urgut".
+  const place = [listing.districtLabel || listing.district, listing.village]
     .filter((part, index, all) => part && all.indexOf(part) === index)
     .join(', ');
 
-  // "More like this" — same category, excluding the listing being viewed.
-  const { data: all } = await getListings();
-  const similar = all
-    .filter((item) => item.category === listing.category && item.id !== listing.id)
-    .slice(0, 4);
+  const similar = await getSimilarListings(listing);
+  const unitPrice = `${formatPrice(listing.price)} ${strings.card.currency}/${listing.unitLabel}`;
 
   const facts: { label: string; value: string }[] = [
-    {
-      label: strings.detail.price,
-      value: `${formatPrice(listing.pricePerKg)} so’m/${listing.unitLabel || strings.detail.kg}`,
-    },
-    ...(listing.quantityKg
-      ? [{ label: strings.detail.quantity, value: `${formatPrice(listing.quantityKg)} ${listing.unitLabel || strings.detail.kg}` }]
-      : []),
+    { label: strings.detail.price, value: unitPrice },
+    ...(listing.quantity ? [{ label: strings.detail.quantity, value: listing.quantity }] : []),
     ...(listing.harvestDate
       ? [{ label: strings.detail.harvestDate, value: formatDate(listing.harvestDate) }]
       : []),
-    { label: strings.detail.category, value: `${category.emoji} ${category.label}` },
+    { label: strings.detail.category, value: `${emoji} ${category.label}` },
     {
       label: strings.detail.location,
       value: [place, regionLabel(listing.region)].filter(Boolean).join(' · '),
@@ -95,13 +102,13 @@ export default async function ProductDetailPage({ params }: PageProps) {
               role="img"
               aria-label={`${category.label} — ${strings.card.noPhoto}`}
             >
-              {category.emoji}
+              {emoji}
             </div>
           )}
         </div>
 
-        <div className="grid gap-4">
-          <article className="panel">
+        <div className="grid min-w-0 gap-4">
+          <article className="panel min-w-0">
             {(listedToday || listing.isSoldOut) && (
               <div className="mb-2.5 flex gap-2">
                 {listedToday && !listing.isSoldOut && (
@@ -116,9 +123,9 @@ export default async function ProductDetailPage({ params }: PageProps) {
             </h1>
 
             <p className="mt-2 text-3xl font-extrabold text-primary-700">
-              {formatPrice(listing.pricePerKg)}{' '}
+              {formatPrice(listing.price)}{' '}
               <span className="text-base font-semibold text-muted">
-                so’m/{listing.unitLabel || strings.detail.kg}
+                {strings.card.currency}/{listing.unitLabel}
               </span>
             </p>
 
@@ -137,24 +144,38 @@ export default async function ProductDetailPage({ params }: PageProps) {
               ))}
             </dl>
 
+            <div className="mt-5 grid grid-cols-2 gap-2.5">
+              <FavoriteButton listingId={listing.id} variant="full" />
+              <ShareButton title={listing.productName} text={unitPrice} />
+            </div>
+
             {listing.seller && (
-              <div className="mt-5 rounded-xl border border-sand-200 bg-sand-100 px-4 py-3">
-                <p className="text-xs font-semibold uppercase tracking-wide text-muted">
-                  {strings.detail.seller}
-                </p>
-                <p className="mt-0.5 font-bold text-ink">{listing.seller.fullName}</p>
-                {(listing.seller.village || listing.seller.region) && (
-                  <p className="text-sm text-muted">
-                    {[listing.seller.village, regionLabel(listing.seller.region || '')]
-                      .filter(Boolean)
-                      .join(', ')}
+              <Link
+                href={`/dehqon/${listing.seller.id}`}
+                className="mt-5 flex items-center justify-between gap-3 rounded-xl border border-sand-200 bg-sand-100 px-4 py-3 transition hover:border-primary-200"
+              >
+                <div className="min-w-0">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted">
+                    {strings.detail.seller}
                   </p>
-                )}
-              </div>
+                  <p className="mt-0.5 truncate font-bold text-ink">{listing.seller.fullName}</p>
+                  {(listing.seller.village || listing.seller.region) && (
+                    <p className="truncate text-sm text-muted">
+                      {[listing.seller.village, regionLabel(listing.seller.region || '')]
+                        .filter(Boolean)
+                        .join(', ')}
+                    </p>
+                  )}
+                  <p className="mt-1 text-xs font-semibold text-primary-700">
+                    {strings.detail.sellerPage}
+                  </p>
+                </div>
+                <ChevronRight size={18} aria-hidden="true" className="shrink-0 text-muted" />
+              </Link>
             )}
           </article>
 
-          <section className="panel">
+          <section className="panel min-w-0">
             <h2 className="text-lg font-extrabold text-ink">{strings.detail.contactTitle}</h2>
             <ContactButtons
               listingId={listing.id}
@@ -166,6 +187,9 @@ export default async function ProductDetailPage({ params }: PageProps) {
             <p className="mt-3.5 text-[13px] leading-relaxed text-muted">
               {strings.detail.contactNote}
             </p>
+            <div className="mt-3">
+              <ReportButton listingId={listing.id} />
+            </div>
           </section>
         </div>
       </div>

@@ -8,7 +8,7 @@
  * consts.
  */
 
-import type { Category, ListingCategory, SortKey } from './types';
+import type { CategoryKey, ReportReason, SortKey, UnitKey } from './types';
 
 export const strings = {
   brand: 'Dehqon Bozori',
@@ -17,8 +17,11 @@ export const strings = {
   nav: {
     home: 'Bosh sahifa',
     sell: 'E’lon berish',
+    sellShort: 'E’lon',
     cabinet: 'Kabinet',
     register: 'Ro’yxatdan o’tish',
+    favorites: 'Saqlanganlar',
+    admin: 'Admin',
   },
 
   home: {
@@ -29,6 +32,11 @@ export const strings = {
     statSellers: 'dehqon',
     statRegions: 'hudud',
     resultsCount: (n: number) => `${n} ta e’lon topildi`,
+    loadMore: 'Yana ko’rsatish',
+    loadingMore: 'Yuklanmoqda…',
+    sellCtaTitle: 'Hosilingiz bormi? O’zingiz soting.',
+    sellCtaBody: 'Bir daqiqada e’lon joylang — xaridor sizga to’g’ridan-to’g’ri qo’ng’iroq qiladi.',
+    appCta: 'Android ilovani yuklab olish',
     emptyTitle: 'Hech narsa topilmadi',
     emptyBody: 'Filtrlarni o’zgartirib ko’ring yoki birinchi bo’lib e’lon bering.',
     demoNotice:
@@ -53,15 +61,18 @@ export const strings = {
 
   sort: {
     newest: 'Eng yangi',
-    cheapest: 'Arzon narx',
-    nearest: 'Yaqin hudud',
+    cheapest: 'Arzonroq',
+    expensive: 'Qimmatroq',
+    popular: 'Ko’p ko’rilgan',
   } satisfies Record<SortKey, string>,
 
   card: {
-    perKg: 'so’m/kg',
+    currency: 'so’m',
     listedToday: 'Bugun joylandi',
     soldOut: 'Sotilgan',
     noPhoto: 'Rasm yo’q',
+    save: 'Saqlash',
+    unsave: 'Saqlanganlardan olib tashlash',
   },
 
   detail: {
@@ -82,7 +93,41 @@ export const strings = {
     notFoundTitle: 'E’lon topilmadi',
     notFoundBody: 'Bu e’lon o’chirilgan yoki manzil noto’g’ri.',
     similar: 'O’xshash e’lonlar',
-    kg: 'kg',
+    unit: 'O’lchov birligi',
+    sellerPage: 'Sotuvchining barcha e’lonlari',
+    share: 'Ulashish',
+    linkCopied: 'Havola nusxalandi',
+    report: 'Shikoyat qilish',
+  },
+
+  report: {
+    title: 'E’lon ustidan shikoyat',
+    reason: 'Sabab',
+    note: 'Izoh',
+    notePlaceholder: 'Nima noto’g’ri? (ixtiyoriy)',
+    submit: 'Yuborish',
+    sending: 'Yuborilmoqda…',
+    cancel: 'Bekor qilish',
+    thanks: 'Rahmat! Shikoyatingiz admin’ga yuborildi.',
+  },
+
+  favorites: {
+    title: 'Saqlangan e’lonlar',
+    subtitle:
+      'Yoqqan e’lonlarni ♥ bilan saqlang — ular shu qurilmada turadi. Telegram orqali kirsangiz, botdagi ⭐ saralanganlar bilan birlashadi.',
+    empty: 'Hali hech narsa saqlanmagan.',
+    emptyCta: 'E’lonlarni ko’rish',
+    synced: 'Telegram hisobingiz bilan sinxronlangan',
+  },
+
+  sellerPage: {
+    title: 'Sotuvchi',
+    activeListings: 'faol e’lon',
+    totalListings: 'jami e’lon',
+    memberSince: 'Platformada',
+    listings: 'E’lonlari',
+    empty: 'Hozircha faol e’lon yo’q.',
+    notFoundTitle: 'Sotuvchi topilmadi',
   },
 
   contact: {
@@ -113,6 +158,15 @@ export const strings = {
       'Telegram bot orqali ham ro’yxatdan o’tsangiz bo’ladi — u yerda hammasi yozishmalar orqali bo’ladi.',
   },
 
+  editListing: {
+    title: 'E’lonni tahrirlash',
+    subtitle: 'O’zgartiring va saqlang — e’lon saytda ham, botda ham darhol yangilanadi.',
+    submit: 'Saqlash',
+    saved: 'O’zgarishlar saqlandi!',
+    notYours: 'Bu e’lon sizniki emas yoki topilmadi.',
+    back: 'Kabinetga qaytish',
+  },
+
   addListing: {
     title: 'Yangi e’lon',
     subtitle: 'Rasm qo’shsangiz, xaridorlar ancha ko’p bog’lanadi.',
@@ -122,8 +176,13 @@ export const strings = {
     productName: 'Mahsulot nomi',
     productNamePlaceholder: 'Masalan: Yangi pomidor',
     category: 'Kategoriya',
-    pricePerKg: 'Narxi (so’m/kg)',
-    quantityKg: 'Miqdori (kg)',
+    price: 'Narxi (so’m)',
+    unit: 'Nima uchun',
+    pricePer: (unit: string) => `1 ${unit} uchun narx`,
+    quantity: 'Mavjud miqdor',
+    removePhoto: 'Rasmni olib tashlash',
+    loginFirst:
+      'E’lon joylash uchun Telegram orqali kiring — bu bir marta, 10 soniya. E’lonlaringiz bot va ilova bilan umumiy bo’ladi.',
     village: 'Qishloq',
     district: 'Tuman / shahar',
     region: 'Viloyat',
@@ -153,6 +212,11 @@ export const strings = {
     delete: 'O’chirish',
     confirmDelete: (name: string) => `"${name}" e’lonini o’chirasizmi?`,
     unpublished: 'Yuborilmagan',
+    edit: 'Tahrirlash',
+    contacts: (n: number) => `${n} ta xaridor bog’landi`,
+    logout: 'Chiqish',
+    profile: 'Profil',
+    signedInAs: 'Hisob',
     loginTitle: 'Telegram orqali kiring',
     loginBody:
       'E’lonlaringizni bu yerda ko’rish uchun Telegram hisobingiz bilan kiring — bot bilan bir xil hisob.',
@@ -177,6 +241,12 @@ export const strings = {
     tabDashboard: 'Statistika',
     tabAdd: 'E’lon qo’shish',
     tabListings: 'Barcha e’lonlar',
+    tabReports: 'Shikoyatlar',
+    statOpenReports: 'Ochiq shikoyat',
+    reportsEmpty: 'Ochiq shikoyat yo’q. 🌿',
+    resolve: 'Hal qilindi',
+    markSold: 'Sotilgan deb belgilash',
+    listingGone: 'E’lon o’chirilgan',
     statListings: 'Jami e’lon',
     statActive: 'Faol',
     statSold: 'Sotilgan',
@@ -231,41 +301,89 @@ export const strings = {
     rights: 'Barcha huquqlar himoyalangan.',
   },
 
+  errors: {
+    retry: 'Qayta urinish',
+  },
+
   loading: 'Yuklanmoqda…',
 } as const;
 
 /**
- * Chip labels + emoji fallbacks for the category system.
+ * Labels + emoji for the eleven categories — the bot's own catalogue.
  *
- * ⚠️ The emoji here MUST match `backend/app/catalog.py`, because the same
- * listing is shown in the Telegram bot and on this site, and a tomato that is
- * 🥕 in one place and 🥬 in the other looks like two different listings to the
- * person who posted it.
+ * ⚠️ Keys and emoji MUST match `backend/app/catalog.py`, because the same
+ * listing is shown in the Telegram bot, on this site and in the mobile app, and
+ * a tomato that is 🥕 in one place and 🥬 in another looks like two different
+ * listings to the person who posted it. `npm run verify` and the contract suite
+ * compare the two files and fail if they drift.
  *
- * The backend is the source of truth: the API returns `category_emoji` on every
- * listing and cards use that. This map is the fallback for demo data (which
- * never goes through the API) and for the category chips, which describe the
- * UI's five buckets rather than any one listing.
- *
- * `npm run verify` compares the two files and fails if they drift.
+ * `label` is the full name (forms, detail pages); `short` fits on a chip.
  */
-export const categoryLabels: Record<ListingCategory, { label: string; emoji: string }> = {
-  sabzavotlar: { label: 'Sabzavotlar', emoji: '🥕' },
-  mevalar: { label: 'Mevalar', emoji: '🍎' },
-  don: { label: 'Don', emoji: '🌾' },
-  sut_mahsulotlari: { label: 'Sut mahsulotlari', emoji: '🥛' },
-  yongoqlar: { label: 'Yong’oqlar', emoji: '🥜' },
-  boshqa: { label: 'Boshqa', emoji: '📦' },
+export const categoryLabels: Record<CategoryKey, { label: string; short: string; emoji: string }> = {
+  vegetables: { label: 'Sabzavotlar', short: 'Sabzavot', emoji: '🥕' },
+  fruits: { label: 'Mevalar', short: 'Meva', emoji: '🍎' },
+  melons: { label: 'Poliz mahsulotlari', short: 'Poliz', emoji: '🍉' },
+  greens: { label: 'Ko’katlar', short: 'Ko’kat', emoji: '🌿' },
+  grains: { label: 'Don va dukkaklilar', short: 'Don', emoji: '🌾' },
+  dried: { label: 'Quruq meva va yong’oq', short: 'Quruq meva', emoji: '🥜' },
+  dairy: { label: 'Sut mahsulotlari', short: 'Sut', emoji: '🥛' },
+  meat: { label: 'Go’sht va parranda', short: 'Go’sht', emoji: '🍖' },
+  honey: { label: 'Asal va asalarichilik', short: 'Asal', emoji: '🍯' },
+  seedlings: { label: 'Urug’ va ko’chat', short: 'Ko’chat', emoji: '🌱' },
+  other: { label: 'Boshqa', short: 'Boshqa', emoji: '📦' },
 };
 
-/** The five headline categories, in the order they appear as chips. */
-export const primaryCategories: Category[] = [
-  'sabzavotlar',
-  'mevalar',
-  'don',
-  'sut_mahsulotlari',
-  'yongoqlar',
+/** Chip order: what a bazaar trader looks for first. */
+export const categoryOrder: CategoryKey[] = [
+  'vegetables',
+  'fruits',
+  'melons',
+  'greens',
+  'grains',
+  'dried',
+  'dairy',
+  'meat',
+  'honey',
+  'seedlings',
+  'other',
 ];
+
+export function categoryLabel(key: string): string {
+  return categoryLabels[key as CategoryKey]?.label ?? key;
+}
+
+export function categoryEmoji(key: string): string {
+  return categoryLabels[key as CategoryKey]?.emoji ?? '📦';
+}
+
+/**
+ * The seven selling units — the bot's `UNITS`. Honey is sold by the litre,
+ * eggs by the piece, greens by the bunch; "so’m/kg" on everything was a lie.
+ */
+export const unitLabels: Record<UnitKey, string> = {
+  kg: 'kg',
+  ton: 'tonna',
+  piece: 'dona',
+  bunch: 'bog’',
+  sack: 'qop',
+  box: 'yashik',
+  liter: 'litr',
+};
+
+export const unitOrder: UnitKey[] = ['kg', 'ton', 'piece', 'bunch', 'sack', 'box', 'liter'];
+
+export function unitLabel(key: string): string {
+  return unitLabels[key as UnitKey] ?? key;
+}
+
+/** Why a buyer can flag a listing. Keys match the backend's report reasons. */
+export const reportReasons: Record<ReportReason, string> = {
+  spam: 'Spam yoki reklama',
+  fraud: 'Firibgarlik',
+  wrong_price: 'Narx noto’g’ri',
+  sold: 'Allaqachon sotilgan',
+  other: 'Boshqa sabab',
+};
 
 /** The 14 regions of Uzbekistan, matching the backend's catalogue. */
 export const regions: { key: string; label: string }[] = [

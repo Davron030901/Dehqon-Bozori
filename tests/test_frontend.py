@@ -91,7 +91,11 @@ def main() -> int:
         "components/ContactButtons.tsx", "components/Footer.tsx", "components/Badge.tsx",
         "components/AutoRefresh.tsx",
         "lib/mockData.ts", "lib/types.ts", "lib/strings.ts", "lib/api.ts",
-        "lib/districts.ts",
+        "lib/districts.ts", "lib/favorites.ts",
+        "components/ListingForm.tsx", "components/FavoriteButton.tsx",
+        "components/ReportButton.tsx", "components/ShareButton.tsx",
+        "app/saqlangan/page.tsx", "app/dehqon/[id]/page.tsx",
+        "app/sotuvchi/tahrirlash/[id]/page.tsx", "app/sitemap.ts", "app/robots.ts",
         ".env.local.example", "public/manifest.webmanifest", "public/icon.svg",
         "scripts/verify.mjs", "scripts/gen-districts.mjs",
     ]
@@ -106,10 +110,23 @@ def main() -> int:
 
     # Districts are a list everywhere, never a text box. Free text is how the
     # same place ended up stored as "Urgut", "urgut tumani" and "Urgut t.".
-    for form in ("sotuvchi/elon-qoshish", "sotuvchi/royxatdan-otish", "sotuvchi/admin"):
+    # Listings are written through one shared form; the profile page has its own.
+    for rel in ("components/ListingForm.tsx", "app/sotuvchi/royxatdan-otish/page.tsx"):
+        src = (FE / rel).read_text(encoding="utf-8")
+        check(f"{rel}: district is a select, not free text", "districtsOf" in src)
+        check(f"{rel}: changing region clears the district", "changeRegion" in src)
+    for form in ("sotuvchi/elon-qoshish", "sotuvchi/tahrirlash/[id]", "sotuvchi/admin"):
         src = (FE / "app" / form / "page.tsx").read_text(encoding="utf-8")
-        check(f"{form}: district is a select, not free text", "districtsOf" in src)
-        check(f"{form}: changing region clears the district", "changeRegion" in src)
+        check(f"{form}: uses the shared ListingForm", "<ListingForm" in src)
+
+    detail_src = (FE / "app" / "mahsulot" / "[id]" / "page.tsx").read_text(encoding="utf-8")
+    check("detail page fetches once per request (views counted once)",
+          "cache(" in detail_src)
+    check("detail page never shows a raw district slug", "districtLabel" in detail_src)
+
+    form_src = (FE / "components" / "ListingForm.tsx").read_text(encoding="utf-8")
+    check("listing form offers every unit, not just kg", "unitOrder" in form_src)
+    check("listing form offers all eleven categories", "categoryOrder" in form_src)
 
     # Auto-refresh must not run in a hidden tab — that is data a buyer on a
     # village 3G plan pays for and never sees.
@@ -205,7 +222,7 @@ def main() -> int:
 
     # demo categories must be ones the UI can label
     types_ts = (FE / "lib" / "types.ts").read_text(encoding="utf-8")
-    union = set(re.findall(r"\|?\s*'([a-z_]+)'", types_ts.split("ListingCategory")[0]))
+    union = set(re.findall(r"\|?\s*'([a-z_]+)'", types_ts.split("export type UnitKey")[0]))
     strings_ts = (FE / "lib" / "strings.ts").read_text(encoding="utf-8")
     labelled = set(re.findall(r"^\s{2}(\w+): \{ label:", strings_ts, re.M))
     used = set(re.findall(r"category: '([a-z_]+)'", mock))

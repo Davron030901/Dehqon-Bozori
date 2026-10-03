@@ -5,6 +5,14 @@ import { ArrowUpDown, Building2, MapPin, RotateCcw } from 'lucide-react';
 import { strings } from '@/lib/strings';
 import type { SortKey } from '@/lib/types';
 
+export interface FilterOption {
+  key: string;
+  label: string;
+  count?: number;
+}
+
+const SORTS: SortKey[] = ['newest', 'cheapest', 'expensive', 'popular'];
+
 export default function FilterBar({
   region,
   onRegionChange,
@@ -24,20 +32,22 @@ export default function FilterBar({
   /**
    * Districts that actually have listings in the selected region.
    *
-   * Empty while "all regions" is selected: a flat list of 205 districts is not
+   * Empty while "all regions" is selected: a flat list of 206 districts is not
    * a filter, it is a wall, and the buyer has no way to know which of them has
    * anything for sale.
    */
-  availableDistricts: { key: string; label: string }[];
+  availableDistricts: FilterOption[];
   sort: SortKey;
   onSortChange: (next: SortKey) => void;
   onReset: () => void;
-  /** Only offer regions that actually have listings — avoids dead-end filters. */
-  availableRegions: { key: string; label: string }[];
+  /** Only regions that actually have listings — avoids dead-end filters. */
+  availableRegions: FilterOption[];
   isDirty: boolean;
 }) {
   const selectClass =
     'w-full appearance-none rounded-xl border border-sand-200 bg-white py-2.5 pl-9 pr-8 text-sm font-medium text-ink shadow-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary-200';
+  const withCount = (option: FilterOption) =>
+    option.count ? `${option.label} (${option.count})` : option.label;
 
   return (
     <div className="flex flex-wrap items-center gap-2">
@@ -56,7 +66,7 @@ export default function FilterBar({
           <option value="all">{strings.filters.allRegions}</option>
           {availableRegions.map((option) => (
             <option key={option.key} value={option.key}>
-              {option.label}
+              {withCount(option)}
             </option>
           ))}
         </select>
@@ -78,7 +88,7 @@ export default function FilterBar({
             <option value="all">{strings.filters.allDistricts}</option>
             {availableDistricts.map((option) => (
               <option key={option.key} value={option.key}>
-                {option.label}
+                {withCount(option)}
               </option>
             ))}
           </select>
@@ -97,9 +107,11 @@ export default function FilterBar({
           onChange={(event) => onSortChange(event.target.value as SortKey)}
           className={selectClass}
         >
-          <option value="newest">{strings.sort.newest}</option>
-          <option value="cheapest">{strings.sort.cheapest}</option>
-          <option value="nearest">{strings.sort.nearest}</option>
+          {SORTS.map((key) => (
+            <option key={key} value={key}>
+              {strings.sort[key]}
+            </option>
+          ))}
         </select>
       </div>
 

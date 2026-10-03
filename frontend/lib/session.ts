@@ -12,11 +12,13 @@
 
 'use client';
 
+import { unitLabels } from './strings';
 import type { Listing, NewListingInput, SellerRegistrationInput } from './types';
 
 const TOKEN_KEY = 'db_token';
 const PROFILE_KEY = 'db_profile_draft';
 const LISTINGS_KEY = 'db_listing_drafts';
+const FAVORITES_KEY = 'db_favorites';
 
 function read<T>(key: string): T | null {
   if (typeof window === 'undefined') return null;
@@ -76,14 +78,17 @@ export function getProfileDraft(): SellerRegistrationInput | null {
 
 export function saveListingDraft(input: NewListingInput): Listing {
   const drafts = getListingDrafts();
+  const unitLabel = unitLabels[input.unit] ?? input.unit;
   const draft: Listing = {
     id: `draft-${Date.now()}`,
     productName: input.productName,
     category: input.category,
     photoUrl: input.photoUrl,
-    pricePerKg: input.pricePerKg,
-    quantityKg: input.quantityKg ?? 0,
-    village: input.village,
+    price: input.price,
+    unit: input.unit,
+    unitLabel,
+    quantity: input.quantity ? `${input.quantity} ${unitLabel}` : undefined,
+    village: '',
     district: input.district,
     region: input.region,
     harvestDate: input.harvestDate ?? '',
@@ -93,7 +98,6 @@ export function saveListingDraft(input: NewListingInput): Listing {
     isSoldOut: false,
     createdAt: new Date().toISOString(),
     description: input.description,
-    unitLabel: 'kg',
     views: 0,
   };
   write(LISTINGS_KEY, [draft, ...drafts]);
@@ -116,4 +120,18 @@ export function removeListingDraft(id: string): void {
     LISTINGS_KEY,
     getListingDrafts().filter((d) => d.id !== id),
   );
+}
+
+// --- favourites ------------------------------------------------------------ //
+// Buyers never register, so a heart tapped on this device is stored here. When
+// the person signs in with Telegram, lib/favorites.ts merges these into the
+// account (the same table the bot's ⭐ button writes to) and keeps this list as
+// a mirror, so the hearts paint instantly on the next visit.
+export function getLocalFavorites(): string[] {
+  const ids = read<unknown>(FAVORITES_KEY);
+  return Array.isArray(ids) ? ids.filter((id): id is string => typeof id === 'string') : [];
+}
+
+export function setLocalFavorites(ids: string[]): void {
+  write(FAVORITES_KEY, Array.from(new Set(ids)).slice(0, 200));
 }

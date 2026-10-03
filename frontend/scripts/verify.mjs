@@ -133,51 +133,57 @@ if (catalogSource) {
     }
   }
 
-  {
-    const rule = 'api.ts dagi kategoriya slug‘lari backend CATEGORIES ichida bor';
-    const apiText = readFileSync(join(FRONTEND, 'lib', 'api.ts'), 'utf8');
-    const toApi = apiText.match(/const TO_API[\s\S]*?\n\};/);
-    const used = toApi
-      ? [...toApi[0].matchAll(/:\s*'([a-z_]+)'/g)].map((m) => m[1])
-      : [];
+  // The site uses the backend's own category and unit slugs — the same eleven
+  // categories and seven units as the bot. Both directions matter: a slug the
+  // backend does not know is a 422 at the end of a form, and a backend slug the
+  // site does not know is a listing with no label.
+  const stringsText = readFileSync(join(FRONTEND, 'lib', 'strings.ts'), 'utf8');
+  const typesText = readFileSync(join(FRONTEND, 'lib', 'types.ts'), 'utf8');
 
-    if (!backendCategories) {
-      fail(rule, 'catalog.py dan CATEGORIES o‘qib bo‘lmadi');
-    } else if (used.length === 0) {
-      fail(rule, 'api.ts dan TO_API topilmadi');
-    } else {
-      const unknown = used.filter((key) => !backendCategories.has(key));
-      if (unknown.length) fail(rule, `backend bilmaydi: ${unknown.join(', ')}`);
-      else pass(`${rule} (${used.length} ta)`);
+  function sameSet(rule, label, frontend, backend) {
+    if (!backend) return fail(rule, `catalog.py dan ${label} o‘qib bo‘lmadi`);
+    if (frontend.size === 0) return fail(rule, `frontend'dan ${label} topilmadi`);
+    const onlyFront = [...frontend].filter((k) => !backend.has(k));
+    const onlyBack = [...backend].filter((k) => !frontend.has(k));
+    if (onlyFront.length || onlyBack.length) {
+      return fail(rule, [
+        onlyFront.length ? `backend bilmaydi: ${onlyFront.join(', ')}` : '',
+        onlyBack.length ? `saytda yo‘q: ${onlyBack.join(', ')}` : '',
+      ].filter(Boolean));
     }
+    pass(`${rule} (${frontend.size} ta)`);
   }
 
-  {
-    // The reverse direction: every backend category must land somewhere in the
-    // UI, or those listings quietly vanish from the site.
-    const rule = 'Har bir backend kategoriyasi UI da o‘z joyini topadi';
-    const apiText = readFileSync(join(FRONTEND, 'lib', 'api.ts'), 'utf8');
-    const fromApi = apiText.match(/const FROM_API[\s\S]*?\n\};/);
-    const mapped = fromApi
-      ? new Set([...fromApi[0].matchAll(/^\s*([a-z_]+):/gm)].map((m) => m[1]))
-      : new Set();
+  const labelBlock = stringsText.match(/export const categoryLabels[\s\S]*?\n\};/);
+  const labelKeys = new Set(
+    labelBlock ? [...labelBlock[0].matchAll(/^\s*([a-z_]+):\s*\{/gm)].map((m) => m[1]) : [],
+  );
+  sameSet(
+    'strings.ts categoryLabels = backend CATEGORIES',
+    'CATEGORIES',
+    labelKeys,
+    backendCategories,
+  );
 
-    if (!backendCategories) {
-      fail(rule, 'catalog.py dan CATEGORIES o‘qib bo‘lmadi');
-    } else {
-      const missing = [...backendCategories].filter((key) => !mapped.has(key));
-      if (missing.length) fail(rule, `FROM_API da yo‘q: ${missing.join(', ')}`);
-      else pass(`${rule} (${backendCategories.size} ta)`);
-    }
-  }
+  const unionBlock = typesText.match(/export type CategoryKey[\s\S]*?;/);
+  const unionKeys = new Set(
+    unionBlock ? [...unionBlock[0].matchAll(/'([a-z_]+)'/g)].map((m) => m[1]) : [],
+  );
+  sameSet('types.ts CategoryKey = backend CATEGORIES', 'CategoryKey', unionKeys, backendCategories);
+
+  const backendUnits = pythonDictKeys(catalogSource, 'UNITS');
+  const unitBlock = stringsText.match(/export const unitLabels[\s\S]*?\n\};/);
+  const unitKeys = new Set(
+    unitBlock ? [...unitBlock[0].matchAll(/^\s*([a-z_]+):\s*'/gm)].map((m) => m[1]) : [],
+  );
+  sameSet('strings.ts unitLabels = backend UNITS', 'UNITS', unitKeys, backendUnits);
 }
 
 // --------------------------------------------------------------------------- //
 //  Rule 3b — the same listing must look the same in both places
 // --------------------------------------------------------------------------- //
 // A seller posts tomatoes in the bot, sees 🥕, opens the site and sees 🥬. To
-// them that is a different listing. The five UI categories each map onto one
-// backend category, and their emoji have to agree.
+// them that is a different listing.
 if (catalogSource) {
   const rule = 'Kategoriya emojilari bot va sayt o‘rtasida bir xil';
 
@@ -187,16 +193,6 @@ if (catalogSource) {
     /"([a-z_]+)":\s*\{[^}]*"emoji":\s*"([^"]+)"/g,
   )) {
     backendEmoji[m[1]] = m[2];
-  }
-
-  // The UI category each backend slug is filed under lives in api.ts's TO_API.
-  const apiText = readFileSync(join(FRONTEND, 'lib', 'api.ts'), 'utf8');
-  const toApiBlock = apiText.match(/const TO_API[\s\S]*?\n\};/);
-  const toApi = {};
-  if (toApiBlock) {
-    for (const m of toApiBlock[0].matchAll(/^\s*([a-z_]+):\s*'([a-z_]+)'/gm)) {
-      toApi[m[1]] = m[2];
-    }
   }
 
   const stringsText = readFileSync(join(FRONTEND, 'lib', 'strings.ts'), 'utf8');
@@ -210,21 +206,16 @@ if (catalogSource) {
     }
   }
 
-  const mismatches = [];
-  for (const [uiKey, backendKey] of Object.entries(toApi)) {
-    const expected = backendEmoji[backendKey];
-    const actual = frontEmoji[uiKey];
-    if (expected && actual && expected !== actual) {
-      mismatches.push(`${uiKey}: sayt ${actual} ≠ bot ${expected} (${backendKey})`);
-    }
-  }
+  const mismatches = Object.entries(frontEmoji)
+    .filter(([key, emoji]) => backendEmoji[key] && backendEmoji[key] !== emoji)
+    .map(([key, emoji]) => `${key}: sayt ${emoji} ≠ bot ${backendEmoji[key]}`);
 
   if (Object.keys(frontEmoji).length === 0) {
     fail(rule, 'strings.ts dan categoryLabels o‘qib bo‘lmadi');
   } else if (mismatches.length) {
     fail(rule, mismatches);
   } else {
-    pass(`${rule} (${Object.keys(toApi).length} ta)`);
+    pass(`${rule} (${Object.keys(frontEmoji).length} ta)`);
   }
 }
 
@@ -305,6 +296,40 @@ if (catalogSource) {
     return usesHooks && !hasDirective;
   });
   if (offenders.length) fail(rule, offenders.map((f) => f.rel));
+  else pass(rule);
+}
+
+// --------------------------------------------------------------------------- //
+//  Rule 6 — no locale-dependent sorting in rendered components
+// --------------------------------------------------------------------------- //
+// Node's ICU and the browser's disagree on Uzbek collation ("Toshkent shahri"
+// vs "Toshkent viloyati"), so a list sorted with localeCompare renders one way
+// on the server and another in the browser, and React throws a hydration
+// error. Sort by a fixed order or by code point instead.
+{
+  const rule = 'app/ va components/ da localeCompare yo‘q (hydration)';
+  const offenders = FILES.filter(
+    (file) => /^(app|components)\//.test(file.rel) && /\.localeCompare\s*\(/.test(file.text),
+  );
+  if (offenders.length) fail(rule, offenders.map((f) => f.rel));
+  else pass(rule);
+}
+
+// --------------------------------------------------------------------------- //
+//  Rule 7 — links to a listing never prefetch
+// --------------------------------------------------------------------------- //
+// Rendering /mahsulot/<id> counts a view. A prefetching <Link> renders it in the
+// background for every card on screen, so the homepage alone used to credit 24
+// listings with views nobody made — and spent the buyer's data doing it.
+{
+  const rule = '/mahsulot/ ga <Link> lar prefetch={false}';
+  const offenders = [];
+  for (const file of FILES.filter((f) => /^(app|components)\//.test(f.rel))) {
+    for (const m of file.text.matchAll(/<Link\b[^>]*?href=\{`\/mahsulot\/[^>]*>/gs)) {
+      if (!/prefetch=\{false\}/.test(m[0])) offenders.push(file.rel);
+    }
+  }
+  if (offenders.length) fail(rule, [...new Set(offenders)]);
   else pass(rule);
 }
 

@@ -1,17 +1,28 @@
+import type { ReactNode } from 'react';
+
 import ProductCard from '@/components/ProductCard';
 import { strings } from '@/lib/strings';
 import type { Listing } from '@/lib/types';
 
-export default function ProductGrid({ listings }: { listings: Listing[] }) {
+export default function ProductGrid({
+  listings,
+  empty,
+}: {
+  listings: Listing[];
+  /** What to show instead of the default "nothing found" box. */
+  empty?: ReactNode;
+}) {
   if (listings.length === 0) {
     return (
-      <div className="rounded-2xl border border-dashed border-sand-300 bg-white/60 px-6 py-16 text-center">
-        <p className="text-4xl" aria-hidden="true">
-          🌾
-        </p>
-        <p className="mt-2 font-bold text-ink">{strings.home.emptyTitle}</p>
-        <p className="mt-1 text-sm text-muted">{strings.home.emptyBody}</p>
-      </div>
+      empty ?? (
+        <div className="rounded-2xl border border-dashed border-sand-300 bg-white/60 px-6 py-16 text-center">
+          <p className="text-4xl" aria-hidden="true">
+            🌾
+          </p>
+          <p className="mt-2 font-bold text-ink">{strings.home.emptyTitle}</p>
+          <p className="mt-1 text-sm text-muted">{strings.home.emptyBody}</p>
+        </div>
+      )
     );
   }
 

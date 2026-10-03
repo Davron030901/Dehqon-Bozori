@@ -2,14 +2,23 @@
 
 import Image from 'next/image';
 import Link from 'next/link';
-import { Eye, PackageCheck, RotateCcw, Trash2 } from 'lucide-react';
+import { Eye, LogOut, PackageCheck, Pencil, PhoneCall, RotateCcw, Trash2 } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 
 import Badge from '@/components/Badge';
 import LoginGate from '@/components/LoginGate';
-import { API_URL, deleteListing, getMyListings, setListingSold } from '@/lib/api';
+import {
+  API_URL,
+  deleteListing,
+  getMyListings,
+  getSession,
+  logout,
+  setListingSold,
+  type SessionInfo,
+} from '@/lib/api';
 import { formatDate, formatPrice } from '@/lib/format';
 import {
+  clearToken,
   getListingDrafts,
   getToken,
   removeListingDraft,
@@ -24,6 +33,7 @@ export default function SellerCabinetPage() {
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [session, setSession] = useState<SessionInfo | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -34,7 +44,8 @@ export default function SellerCabinetPage() {
 
     if (token && API_URL) {
       try {
-        const mine = await getMyListings(token);
+        const [mine, info] = await Promise.all([getMyListings(token), getSession(token)]);
+        setSession(info);
         setSignedIn(true);
         // Local drafts sit alongside published listings until they are sent.
         setListings([...drafts, ...mine]);
@@ -106,6 +117,14 @@ export default function SellerCabinetPage() {
     setBusyId(null);
   }
 
+  async function signOut() {
+    const token = getToken();
+    if (token) await logout(token);
+    clearToken();
+    setSession(null);
+    await load();
+  }
+
   const activeCount = listings.filter((l) => !l.isSoldOut).length;
   const totalViews = listings.reduce((sum, l) => sum + (l.views ?? 0), 0);
 
@@ -115,6 +134,42 @@ export default function SellerCabinetPage() {
         {strings.cabinet.title}
       </h1>
       <p className="mt-2 text-[15px] text-muted">{strings.cabinet.subtitle}</p>
+
+      {signedIn && session && (
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-sand-200 bg-white px-4 py-3 shadow-sm">
+          <div className="min-w-0">
+            <p className="text-xs text-muted">{strings.cabinet.signedInAs}</p>
+            <p className="truncate font-bold text-ink">
+              {session.seller.fullName}
+              {session.seller.phone ? ` · ${session.seller.phone}` : ''}
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Link
+              href="/sotuvchi/royxatdan-otish"
+              className="rounded-lg border border-sand-200 bg-white px-3 py-1.5 text-[13px] font-semibold text-ink transition hover:border-primary-200"
+            >
+              {strings.cabinet.profile}
+            </Link>
+            {session.isAdmin && (
+              <Link
+                href="/sotuvchi/admin"
+                className="rounded-lg border border-primary-200 bg-primary-50 px-3 py-1.5 text-[13px] font-semibold text-primary-700"
+              >
+                {strings.nav.admin}
+              </Link>
+            )}
+            <button
+              type="button"
+              onClick={() => void signOut()}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-sand-200 bg-white px-3 py-1.5 text-[13px] font-semibold text-muted transition hover:text-ink"
+            >
+              <LogOut size={14} aria-hidden="true" />
+              {strings.cabinet.logout}
+            </button>
+          </div>
+        </div>
+      )}
 
       {!loading && !signedIn && (
         <div className="mt-5">
@@ -171,7 +226,7 @@ export default function SellerCabinetPage() {
       ) : (
         <ul className="mt-5 grid gap-3">
           {listings.map((listing) => {
-            const meta = categoryLabels[listing.category];
+            const meta = categoryLabels[listing.category] ?? categoryLabels.other;
             const isDraft = listing.id.startsWith('draft-');
             const busy = busyId === listing.id;
 
@@ -191,7 +246,7 @@ export default function SellerCabinetPage() {
                     />
                   ) : (
                     <span className="flex h-full w-full items-center justify-center text-3xl">
-                      {meta.emoji}
+                      {listing.categoryEmoji || meta.emoji}
                     </span>
                   )}
                 </div>
@@ -208,9 +263,9 @@ export default function SellerCabinetPage() {
                   </div>
 
                   <p className="font-extrabold text-primary-700">
-                    {formatPrice(listing.pricePerKg)}{' '}
+                    {formatPrice(listing.price)}{' '}
                     <span className="text-xs font-semibold text-muted">
-                      so’m/{listing.unitLabel || strings.detail.kg}
+                      {strings.card.currency}/{listing.unitLabel}
                     </span>
                   </p>
 
@@ -218,6 +273,12 @@ export default function SellerCabinetPage() {
                     📍 {regionLabel(listing.region)} · {formatDate(listing.createdAt)}
                     {listing.views ? ` · 👁 ${listing.views}` : ''}
                   </p>
+                  {listing.contactsCount ? (
+                    <p className="mt-0.5 inline-flex items-center gap-1 text-xs font-semibold text-primary-700">
+                      <PhoneCall size={12} aria-hidden="true" />
+                      {strings.cabinet.contacts(listing.contactsCount)}
+                    </p>
+                  ) : null}
 
                   <div className="mt-2.5 flex flex-wrap gap-2">
                     <button
@@ -241,7 +302,17 @@ export default function SellerCabinetPage() {
 
                     {!isDraft && (
                       <Link
-                        href={`/mahsulot/${listing.id}`}
+                        href={`/sotuvchi/tahrirlash/${listing.id}`}
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-sand-200 bg-white px-3 py-1.5 text-[13px] font-semibold text-ink transition hover:border-primary-200"
+                      >
+                        <Pencil size={14} aria-hidden="true" />
+                        {strings.cabinet.edit}
+                      </Link>
+                    )}
+
+                    {!isDraft && (
+                      <Link
+                        href={`/mahsulot/${listing.id}`} prefetch={false}
                         className="inline-flex items-center gap-1.5 rounded-lg border border-sand-200 bg-white px-3 py-1.5 text-[13px] font-semibold text-ink transition hover:border-primary-200"
                       >
                         <Eye size={14} aria-hidden="true" />
