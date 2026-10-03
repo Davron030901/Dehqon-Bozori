@@ -7,7 +7,7 @@
  * Regenerate: npm run gen:districts
  * Verified by: npm run verify (fails if this file is stale)
  *
- * 14 regions, 205 districts and cities.
+ * 14 regions, 206 districts and cities.
  *
  * Place names are Uzbek only. Translating 175 of them by guesswork would
  * show a Russian-speaking trader the wrong name, which is worse than
@@ -110,6 +110,7 @@ export const DISTRICTS: Record<string, District[]> = {
     { key: 'guzor', label: 'G\'uzor', type: 'district' },
     { key: 'kasbi', label: 'Kasbi', type: 'district' },
     { key: 'kitob', label: 'Kitob', type: 'district' },
+    { key: 'kokdala', label: 'Ko\'kdala', type: 'district' },
     { key: 'koson', label: 'Koson', type: 'district' },
     { key: 'mirishkor', label: 'Mirishkor', type: 'district' },
     { key: 'muborak', label: 'Muborak', type: 'district' },
@@ -292,4 +293,4 @@ export function isValidDistrict(key: string, region?: string): boolean {
   return !region || region === 'all' || actual === region;
 }
 
-export const DISTRICT_COUNT = 205;
+export const DISTRICT_COUNT = 206;

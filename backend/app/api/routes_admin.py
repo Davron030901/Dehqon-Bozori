@@ -15,11 +15,18 @@ from typing import Annotated
 from fastapi import APIRouter, HTTPException, Path, Query
 from sqlalchemy import func, select
 
-from app.db.database import ContactEvent, Listing, User, utcnow
+from app.db.database import ContactEvent, Listing, Report, User, utcnow
 from app.db.queries import get_or_create_offline_seller, normalize_phone  # noqa: F401
+from app.districts import district_label
 
 from .deps import AdminUser, DbSession
-from app.models.schemas import AdminListingIn, ListingOut, ListingPage
+from app.models.schemas import (
+    AdminListingIn,
+    ListingOut,
+    ListingPage,
+    ReportOut,
+    ReportPatch,
+)
 from .serializers import serialize_listing
 from .routes_seller import build_listing
 
@@ -84,7 +91,9 @@ async def create_for_seller(
         payload.seller_name,
         payload.seller_phone or payload.phone,
         payload.region,
-        payload.district,
+        # The seller's "village" is shown to people — store the district's
+        # name, never its slug ("Urgut", not "urgut").
+        district_label(payload.district, fallback=payload.district) or None,
     )
     listing = build_listing(payload, seller.id, source="admin")
     if not listing.phone:
@@ -161,6 +170,7 @@ async def dashboard(session: DbSession, _admin: AdminUser) -> dict:
             "contacts": await count(ContactEvent),
             "contacts_week": await count(ContactEvent, ContactEvent.created_at >= week_ago),
             "listings_week": await count(Listing, Listing.created_at >= week_ago),
+            "open_reports": await count(Report, Report.status == "open"),
         },
         "by_category": [{"key": k, "count": c} for k, c in by_category],
         "by_region": [{"key": k, "count": c} for k, c in by_region],
@@ -170,3 +180,60 @@ async def dashboard(session: DbSession, _admin: AdminUser) -> dict:
             {"id": l.id, "title": l.title, "views": l.views or 0} for l in top
         ],
     }
+
+
+# --------------------------------------------------------------------------- #
+#  Reports — buyers flagging spam, fraud, fake prices
+# --------------------------------------------------------------------------- #
+@router.get("/reports", response_model=list[ReportOut])
+async def list_reports(
+    session: DbSession,
+    _admin: AdminUser,
+    status: str | None = Query("open", description="open | resolved | empty for all"),
+    limit: int = Query(100, ge=1, le=500),
+) -> list[ReportOut]:
+    stmt = (
+        select(Report, Listing.title)
+        .join(Listing, Listing.id == Report.listing_id, isouter=True)
+        .order_by(Report.created_at.desc(), Report.id.desc())
+        .limit(limit)
+    )
+    if status:
+        stmt = stmt.where(Report.status == status)
+    rows = (await session.execute(stmt)).all()
+    return [
+        ReportOut(
+            id=r.id,
+            listing_id=r.listing_id,
+            listing_title=title,
+            reason=r.reason,
+            note=r.note,
+            status=r.status,
+            created_at=r.created_at,
+        )
+        for r, title in rows
+    ]
+
+
+@router.patch("/reports/{report_id}", response_model=ReportOut)
+async def update_report(
+    session: DbSession,
+    _admin: AdminUser,
+    report_id: Annotated[int, Path(ge=1)],
+    payload: ReportPatch,
+) -> ReportOut:
+    report = await session.get(Report, report_id)
+    if report is None:
+        raise HTTPException(404, "not found")
+    report.status = payload.status
+    await session.commit()
+    listing = await session.get(Listing, report.listing_id)
+    return ReportOut(
+        id=report.id,
+        listing_id=report.listing_id,
+        listing_title=listing.title if listing else None,
+        reason=report.reason,
+        note=report.note,
+        status=report.status,
+        created_at=report.created_at,
+    )

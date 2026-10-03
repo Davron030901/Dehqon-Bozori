@@ -3,17 +3,25 @@ from __future__ import annotations
 
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, HTTPException, Path, Query, Response
+from fastapi import APIRouter, HTTPException, Path, Query, Request, Response
 from fastapi.responses import FileResponse
 from sqlalchemy import func, or_, select
 
+from app.catalog import region_label
 from app.config import settings
-from app.db.database import ContactEvent, Listing, User
+from app.db.database import ContactEvent, Listing, Report, User
 from app.districts import is_valid_district
 
-from . import media, notify
-from .deps import DbSession
-from app.models.schemas import ContactOut, ListingOut, ListingPage
+from . import media, notify, ratelimit
+from .deps import DbSession, OptionalUser
+from app.models.schemas import (
+    ContactOut,
+    FacetsOut,
+    ListingOut,
+    ListingPage,
+    ReportIn,
+    SellerPublicOut,
+)
 from .serializers import (
     serialize_listing,
     telegram_link,
@@ -24,6 +32,17 @@ from .serializers import (
 router = APIRouter(tags=["listings"])
 
 Sort = Literal["new", "price_asc", "price_desc", "popular"]
+
+
+def _parse_ids(raw: str) -> list[int]:
+    """'3, 7,x,7' -> [3, 7]. Junk is ignored rather than turned into a 422,
+    because the list comes straight out of a phone's local storage."""
+    out: list[int] = []
+    for chunk in raw.split(","):
+        chunk = chunk.strip()
+        if chunk.isdigit() and int(chunk) > 0 and int(chunk) not in out:
+            out.append(int(chunk))
+    return out[:100]
 
 
 async def _sellers_for(session, listings: list[Listing]) -> dict[int, User]:
@@ -47,6 +66,10 @@ async def list_listings(
     sort: Sort = "new",
     include_sold: bool = False,
     seller_id: int | None = None,
+    ids: str | None = Query(
+        None,
+        description="Comma-separated listing ids (max 100) — a device's saved favourites",
+    ),
     page: int = Query(1, ge=1),
     per_page: int = Query(0, ge=0, le=100),
     lang: str = "uz",
@@ -54,6 +77,11 @@ async def list_listings(
     per_page = per_page or settings.web_page_size
 
     conds = []
+    if ids is not None:
+        wanted = _parse_ids(ids)
+        if not wanted:
+            return ListingPage(items=[], total=0, page=page, per_page=per_page, pages=1)
+        conds.append(Listing.id.in_(wanted))
     if not include_sold:
         conds.append(Listing.status == "active")
     if category:
@@ -132,29 +160,177 @@ async def get_listing(
     return serialize_listing(listing, lang, seller)
 
 
-@router.post("/listings/{listing_id}/contact", response_model=ContactOut)
-async def register_contact(
+@router.get("/listings/{listing_id}/similar", response_model=list[ListingOut])
+async def similar_listings(
     session: DbSession,
     listing_id: Annotated[int, Path(ge=1)],
-    channel: Literal["call", "telegram", "whatsapp"] = "call",
-) -> ContactOut:
-    """Record a buyer reaching out and ping the seller on Telegram.
+    limit: int = Query(4, ge=1, le=12),
+    lang: str = "uz",
+) -> list[ListingOut]:
+    """Active listings in the same category — same region first, newest next.
 
-    Returns the contact links too, so the browser can open tel:/t.me/wa.me
-    right after this call resolves.
+    The detail page used to download every listing to pick four of them; this
+    asks the database for exactly the four.
     """
     listing = await session.get(Listing, listing_id)
     if listing is None:
         raise HTTPException(404, "E'lon topilmadi / Объявление не найдено")
 
-    session.add(ContactEvent(listing_id=listing_id, channel=channel, source="web"))
+    same_region = (Listing.region == listing.region).desc()
+    rows = (
+        await session.execute(
+            select(Listing)
+            .where(
+                Listing.status == "active",
+                Listing.category == listing.category,
+                Listing.id != listing.id,
+            )
+            .order_by(same_region, Listing.created_at.desc(), Listing.id.desc())
+            .limit(limit)
+        )
+    ).scalars().all()
+    sellers = await _sellers_for(session, rows)
+    return [serialize_listing(l, lang, sellers.get(l.seller_id)) for l in rows]
+
+
+@router.get("/facets", response_model=FacetsOut)
+async def facets(session: DbSession, region: str | None = None) -> FacetsOut:
+    """How many active listings sit under each category, region and district.
+
+    Filters offer only the choices that lead somewhere: a buyer should never
+    pick "Xorazm" and land on an empty page.
+    """
+    active = Listing.status == "active"
+
+    async def grouped(column, *extra) -> dict[str, int]:
+        rows = (
+            await session.execute(
+                select(column, func.count()).where(active, *extra).group_by(column)
+            )
+        ).all()
+        return {k: n for k, n in rows if k}
+
+    district_scope = (Listing.region == region,) if region else ()
+    total = (
+        await session.execute(select(func.count()).select_from(Listing).where(active))
+    ).scalar_one()
+    return FacetsOut(
+        total=total,
+        categories=await grouped(Listing.category),
+        regions=await grouped(Listing.region),
+        districts=await grouped(Listing.district, *district_scope),
+    )
+
+
+@router.get("/sellers/{seller_id}", response_model=SellerPublicOut, tags=["sellers"])
+async def seller_profile(
+    session: DbSession, seller_id: int, lang: str = "uz"
+) -> SellerPublicOut:
+    """A seller's public card. Their listings come from
+    `GET /api/listings?seller_id=…`, which already paginates and filters.
+
+    Offline sellers (negative ids, created by the admin for growers who phone
+    in) have pages too — they are real people with real produce.
+    """
+    user = await session.get(User, seller_id)
+    if user is None:
+        raise HTTPException(404, "Sotuvchi topilmadi / Продавец не найден")
+
+    async def count(*conds) -> int:
+        return (
+            await session.execute(
+                select(func.count()).select_from(Listing).where(
+                    Listing.seller_id == seller_id, *conds
+                )
+            )
+        ).scalar_one()
+
+    total = await count()
+    return SellerPublicOut(
+        id=user.id,
+        full_name=user.full_name,
+        username=user.username,
+        phone=user.phone,
+        region=user.region,
+        region_label=region_label(user.region, lang) if user.region else None,
+        village=user.village,
+        active_listings=await count(Listing.status == "active"),
+        total_listings=total,
+        member_since=user.created_at,
+    )
+
+
+@router.post("/listings/{listing_id}/report", status_code=201)
+async def report_listing(
+    request: Request,
+    session: DbSession,
+    user: OptionalUser,
+    listing_id: Annotated[int, Path(ge=1)],
+    payload: ReportIn,
+) -> dict:
+    """Flag a listing for the founder: spam, fraud, a fake price, already sold.
+
+    Anonymous on purpose — buyers never register. The admins get a Telegram
+    message straight away, and the report waits in the admin panel.
+    """
+    ratelimit.enforce(f"report:{ratelimit.client_ip(request)}", limit=5, window_seconds=3600)
+
+    listing = await session.get(Listing, listing_id)
+    if listing is None:
+        raise HTTPException(404, "E'lon topilmadi / Объявление не найдено")
+
+    report = Report(
+        listing_id=listing_id,
+        reporter_id=user.id if user else None,
+        reason=payload.reason,
+        note=(payload.note or "").strip() or None,
+        status="open",
+    )
+    session.add(report)
+    await session.commit()
+
+    for admin_id in settings.admin_id_list:
+        notify.send_background(
+            admin_id, notify.report_message(listing.id, listing.title, payload.reason, report.note)
+        )
+    return {"ok": True, "id": report.id}
+
+
+@router.post("/listings/{listing_id}/contact", response_model=ContactOut)
+async def register_contact(
+    request: Request,
+    session: DbSession,
+    listing_id: Annotated[int, Path(ge=1)],
+    channel: Literal["call", "telegram", "whatsapp"] = "call",
+    source: Literal["web", "app"] = "web",
+) -> ContactOut:
+    """Record a buyer reaching out and ping the seller on Telegram.
+
+    Returns the contact links too, so the browser can open tel:/t.me/wa.me
+    right after this call resolves.
+
+    Every tap is counted, but the seller's phone buzzes at most once per buyer
+    per listing every ten minutes — otherwise this endpoint is a free way to
+    flood a grower's Telegram with a loop.
+    """
+    listing = await session.get(Listing, listing_id)
+    if listing is None:
+        raise HTTPException(404, "E'lon topilmadi / Объявление не найдено")
+
+    ip = ratelimit.client_ip(request)
+    # A hard ceiling on the analytics too, so a script cannot inflate a
+    # listing's numbers on the admin dashboard.
+    ratelimit.enforce(f"contact:{ip}", limit=60, window_seconds=600)
+
+    session.add(ContactEvent(listing_id=listing_id, channel=channel, source=source))
     await session.commit()
 
     seller = await session.get(User, listing.seller_id)
     lang = seller.language if seller else "uz"
-    notify.send_background(
-        listing.seller_id, notify.contact_message(listing.title, channel, lang)
-    )
+    if ratelimit.allow(f"notify:{ip}:{listing_id}", limit=1, window_seconds=600):
+        notify.send_background(
+            listing.seller_id, notify.contact_message(listing.title, channel, lang)
+        )
 
     phone = listing.phone or (seller.phone if seller else None)
     username = listing.telegram_username or (seller.username if seller else None)

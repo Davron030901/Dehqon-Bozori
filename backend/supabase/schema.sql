@@ -40,11 +40,10 @@ create index if not exists idx_users_phone on users (phone);
 -- ---------------------------------------------------------------------------
 -- listings — the produce on offer
 -- ---------------------------------------------------------------------------
--- Note on categories: there is intentionally NO check constraint. The bot
--- offers eleven categories (melons, greens, honey, meat, seedlings…) and
--- sellers use them. The frontend folds anything outside its five headline
--- chips into a "boshqa" bucket, so nothing is lost or rejected. Adding a
--- five-value CHECK here would start refusing real listings.
+-- Note on categories: there is intentionally NO check constraint. The eleven
+-- slugs live in backend/app/catalog.py, which the bot, the website and the
+-- mobile app all read; a CHECK here would have to be migrated every time a
+-- category is added, and forgetting would start refusing real listings.
 create table if not exists listings (
   id                serial primary key,
   seller_id         bigint not null references users (id) on delete cascade,
@@ -123,12 +122,32 @@ create table if not exists contact_events (
   id         serial primary key,
   listing_id integer not null references listings (id) on delete cascade,
   channel    varchar(16) not null check (channel in ('call', 'telegram', 'whatsapp')),
-  source     varchar(16) not null default 'web',       -- web | bot
+  source     varchar(16) not null default 'web',       -- web | app | bot
   created_at timestamptz not null default now()
 );
 
 create index if not exists idx_contact_events_listing on contact_events (listing_id);
 create index if not exists idx_contact_events_created on contact_events (created_at desc);
+
+
+-- ---------------------------------------------------------------------------
+-- reports — a buyer flags a listing (spam, fraud, wrong price, already sold)
+-- ---------------------------------------------------------------------------
+-- Buyers never register, so reporter_id is usually null. The founder looks at
+-- the listing, not at who complained.
+create table if not exists reports (
+  id          serial primary key,
+  listing_id  integer not null references listings (id) on delete cascade,
+  reporter_id bigint,
+  reason      varchar(16) not null
+              check (reason in ('spam', 'fraud', 'wrong_price', 'sold', 'other')),
+  note        varchar(500),
+  status      varchar(16) not null default 'open',     -- open | resolved
+  created_at  timestamptz not null default now()
+);
+
+create index if not exists idx_reports_listing on reports (listing_id);
+create index if not exists idx_reports_status  on reports (status);
 
 
 -- ---------------------------------------------------------------------------
@@ -172,6 +191,7 @@ alter table favorites      enable row level security;
 alter table contact_events enable row level security;
 alter table auth_codes     enable row level security;
 alter table web_sessions   enable row level security;
+alter table reports        enable row level security;
 
 drop policy if exists "Public can read active listings" on listings;
 create policy "Public can read active listings"

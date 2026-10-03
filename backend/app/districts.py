@@ -119,6 +119,8 @@ DISTRICTS: dict[str, list[dict[str, str]]] = {
         {"key": "guzor", "uz": "G'uzor", "type": "district"},
         {"key": "kasbi", "uz": "Kasbi", "type": "district"},
         {"key": "kitob", "uz": "Kitob", "type": "district"},
+        # 2019-yilda Chiroqchi tumanidan ajratilgan — 175-tuman shu.
+        {"key": "kokdala", "uz": "Ko'kdala", "type": "district"},
         {"key": "koson", "uz": "Koson", "type": "district"},
         {"key": "mirishkor", "uz": "Mirishkor", "type": "district"},
         {"key": "muborak", "uz": "Muborak", "type": "district"},

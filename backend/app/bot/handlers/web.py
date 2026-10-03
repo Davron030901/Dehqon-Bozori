@@ -25,15 +25,26 @@ router = Router(name="web")
 
 
 def site_url(path: str = "") -> str:
-    return settings.public_base_url.rstrip("/") + path
+    """The storefront (Vercel), not this API — see SITE_URL in config.py."""
+    return settings.storefront_url + path
 
 
-def site_kb(lang: str) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text=t("web_open_site", lang), url=site_url("/"))]
-        ]
-    )
+def _button_safe(url: str) -> bool:
+    """Telegram rejects URL buttons pointing at localhost, and a rejected
+    keyboard means the whole message is never delivered."""
+    host = url.split("://", 1)[-1].split("/", 1)[0].split(":", 1)[0]
+    return url.startswith(("http://", "https://")) and host not in ("localhost", "127.0.0.1", "0.0.0.0")
+
+
+def site_kb(lang: str) -> InlineKeyboardMarkup | None:
+    rows = []
+    if _button_safe(site_url("/")):
+        rows.append([InlineKeyboardButton(text=t("web_open_site", lang), url=site_url("/"))])
+    if settings.android_app_url and _button_safe(settings.android_app_url):
+        rows.append([
+            InlineKeyboardButton(text=t("web_open_app", lang), url=settings.android_app_url)
+        ])
+    return InlineKeyboardMarkup(inline_keyboard=rows) if rows else None
 
 
 # --------------------------------------------------------------------------- #

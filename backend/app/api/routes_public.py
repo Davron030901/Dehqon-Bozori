@@ -22,6 +22,8 @@ from sqlalchemy import select
 from app.catalog import CATEGORIES, REGIONS
 from app.config import settings
 from app.db.database import ContactEvent, Listing, User
+from app.db.queries import get_or_create_offline_seller, normalize_phone
+from app.districts import DISTRICT_TO_REGION
 
 from .deps import DbSession
 from .routes_listings import get_listing, list_listings
@@ -90,7 +92,8 @@ class SellerIn(BaseModel):
         digits = "".join(c for c in v if c.isdigit())
         if len(digits) < 7:
             raise ValueError("phone number looks too short")
-        return f"+{digits}"
+        # The one normalisation every seller-creating path shares.
+        return normalize_phone(v)
 
 
 class SellerOut(BaseModel):
@@ -261,26 +264,15 @@ async def create_listing_public(session: DbSession, payload: PublicListingIn) ->
         raise HTTPException(422, f"Noma'lum kategoriya: {payload.category}")
     if payload.region not in REGIONS:
         raise HTTPException(422, f"Noma'lum hudud: {payload.region}")
+    if payload.district in DISTRICT_TO_REGION and DISTRICT_TO_REGION[payload.district] != payload.region:
+        raise HTTPException(422, f"Tuman {payload.district} bu hududga tegishli emas")
 
-    phone = "+" + "".join(c for c in payload.seller_phone if c.isdigit())
-    seller = (
-        await session.execute(select(User).where(User.phone == phone).limit(1))
-    ).scalar_one_or_none()
-
-    if seller is None:
-        min_id = (
-            await session.execute(select(User.id).order_by(User.id.asc()).limit(1))
-        ).scalar()
-        seller = User(
-            id=min(-1, (min_id or 0) - 1),
-            phone=phone,
-            full_name="Dehqon",
-            village=payload.village,
-            region=payload.region,
-            language="uz",
-        )
-        session.add(seller)
-        await session.flush()
+    # Same rule as the bot's /admin and the website's admin page: matched on
+    # phone, synthetic negative id, never duplicated.
+    seller = await get_or_create_offline_seller(
+        session, None, payload.seller_phone, payload.region, payload.village
+    )
+    phone = seller.phone
 
     listing = Listing(
         seller_id=seller.id,

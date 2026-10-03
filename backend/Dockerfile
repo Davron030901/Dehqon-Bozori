@@ -1,8 +1,8 @@
 # Dehqon Bozori — API + Telegram bot in one container.
 #
-# Two stages so the compiler toolchain needed to build asyncpg/greenlet wheels
-# never ships to production: the runtime image carries only the installed
-# packages, which keeps it small and reduces the attack surface.
+# Two stages so pip, its cache and the wheel files never ship to production:
+# the runtime image carries only the installed packages, which keeps it small
+# and reduces the attack surface.
 
 # --------------------------------------------------------------------------- #
 #  Stage 1 — build wheels
@@ -12,13 +12,13 @@ FROM python:3.11-slim AS builder
 ENV PIP_DISABLE_PIP_VERSION_CHECK=1 \
     PIP_NO_CACHE_DIR=1
 
-RUN apt-get update \
- && apt-get install -y --no-install-recommends build-essential \
- && rm -rf /var/lib/apt/lists/*
-
+# No apt-get, no compiler: every dependency (asyncpg, greenlet, uvloop,
+# pydantic-core…) ships a manylinux wheel for CPython 3.11, and
+# --only-binary makes that a guarantee instead of a hope — a dependency that
+# would need compiling fails the build loudly rather than pulling in gcc.
 WORKDIR /build
 COPY requirements.txt .
-RUN pip install --prefix=/install -r requirements.txt
+RUN pip install --prefix=/install --only-binary=:all: -r requirements.txt
 
 # --------------------------------------------------------------------------- #
 #  Stage 2 — runtime
@@ -29,11 +29,6 @@ ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
     ENV=production
-
-# curl is used by the container HEALTHCHECK below.
-RUN apt-get update \
- && apt-get install -y --no-install-recommends curl \
- && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /install /usr/local
 
@@ -55,7 +50,10 @@ USER dehqon
 # (see app/config.py: bind_port). Never hard-code a port here.
 EXPOSE 8000
 
+# Python's own urllib instead of curl, so the image needs no apt packages at
+# all. Render uses its own healthCheckPath; this is for `docker run` and any
+# other orchestrator.
 HEALTHCHECK --interval=60s --timeout=10s --start-period=20s --retries=3 \
-  CMD curl -fsS "http://127.0.0.1:${PORT:-8000}/health" || exit 1
+  CMD python -c "import os, urllib.request; urllib.request.urlopen('http://127.0.0.1:%s/health' % os.environ.get('PORT', '8000'), timeout=8)" || exit 1
 
 CMD ["python", "-m", "app.main"]

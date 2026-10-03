@@ -9,11 +9,19 @@ import {
   whatsappHref,
 } from '@/lib/format';
 
+// formatPrice groups with a NO-BREAK space (U+00A0), not a plain one, so a
+// price never wraps in the middle on a narrow phone screen ("8" / "000").
+const NBSP = '\u00a0';
+
 describe('formatPrice', () => {
   it('groups thousands with a space, as Uzbek prices are written', () => {
-    expect(formatPrice(8000)).toBe('8 000');
-    expect(formatPrice(2500)).toBe('2 500');
-    expect(formatPrice(1250000)).toBe('1 250 000');
+    expect(formatPrice(8000)).toBe(`8${NBSP}000`);
+    expect(formatPrice(2500)).toBe(`2${NBSP}500`);
+    expect(formatPrice(1250000)).toBe(`1${NBSP}250${NBSP}000`);
+  });
+
+  it('never uses a breakable space between digit groups', () => {
+    expect(formatPrice(1250000)).not.toContain(' ');
   });
 
   it('leaves small numbers alone', () => {
@@ -22,8 +30,8 @@ describe('formatPrice', () => {
   });
 
   it('rounds rather than showing a fractional so’m', () => {
-    expect(formatPrice(8000.4)).toBe('8 000');
-    expect(formatPrice(8000.6)).toBe('8 001');
+    expect(formatPrice(8000.4)).toBe(`8${NBSP}000`);
+    expect(formatPrice(8000.6)).toBe(`8${NBSP}001`);
   });
 
   it('degrades to a dash instead of printing NaN at a buyer', () => {

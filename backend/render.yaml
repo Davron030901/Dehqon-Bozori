@@ -44,6 +44,12 @@ services:
           type: web
           name: dehqon-bozori-backend
           property: host
+      # The storefront (Vercel). The bot's "Saytni ochish" button goes here.
+      - key: SITE_URL
+        sync: false
+      # Optional Android download link (EAS build / Play Store page).
+      - key: ANDROID_APP_URL
+        sync: false
       # Lock this down to your Vercel domain once the frontend is deployed.
       - key: CORS_ORIGINS
         value: "*"

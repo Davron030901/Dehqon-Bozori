@@ -1,6 +1,8 @@
 """Buyer handlers: browsing, searching, viewing, contacting, favorites."""
 from __future__ import annotations
 
+import html
+
 from aiogram import Bot, F, Router
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
@@ -8,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.catalog import category_label, region_label
 from app.config import settings
-from app.db.database import Listing, User
+from app.db.database import ContactEvent, Listing, User
 from app.bot.keyboards import (
     categories_kb,
     contact_link_kb,
@@ -165,6 +167,10 @@ async def view_listing(callback: CallbackQuery, session: AsyncSession) -> None:
     if not listing or listing.status != "active":
         await callback.answer(t("listing_gone", lang), show_alert=True)
         return
+    # Views are counted on the website and in the app; a buyer opening the
+    # listing in the bot is just as real.
+    listing.views = (listing.views or 0) + 1
+    await session.commit()
     seller = await session.get(User, listing.seller_id)
     caption = listing_card(listing, lang, show_contact=False, seller=seller)
     fav = await is_favorite(session, callback.from_user.id, listing_id)
@@ -201,6 +207,11 @@ async def contact_seller(
         "\n".join(parts), reply_markup=contact_link_kb(seller, lang)
     )
 
+    # Count the tap like the website does, so the admin dashboard and the
+    # seller's own numbers include buyers who came through the bot.
+    session.add(ContactEvent(listing_id=listing_id, channel="telegram", source="bot"))
+    await session.commit()
+
     # Best-effort notification to the seller.
     if seller:
         buyer = callback.from_user
@@ -208,7 +219,14 @@ async def contact_seller(
         try:
             await bot.send_message(
                 seller.id,
-                t("seller_notify", seller.language, title=listing.title, buyer=buyer_ref),
+                t(
+                    "seller_notify",
+                    seller.language,
+                    # parse_mode is HTML: an unescaped "<" in a title or a
+                    # buyer's name makes Telegram refuse the whole message.
+                    title=html.escape(listing.title),
+                    buyer=html.escape(buyer_ref),
+                ),
             )
         except Exception:
             pass

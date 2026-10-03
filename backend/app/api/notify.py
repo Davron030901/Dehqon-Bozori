@@ -10,6 +10,7 @@ Telegram outage never breaks a web request.
 from __future__ import annotations
 
 import asyncio
+import html
 import logging
 
 from app.config import settings
@@ -76,15 +77,41 @@ CHANNEL_LABEL = {
 
 def contact_message(title: str, channel: str, lang: str = "uz") -> str:
     label = CHANNEL_LABEL.get(channel, CHANNEL_LABEL["call"]).get(lang, "")
+    # Messages go out with parse_mode=HTML. A title like "Olma <1-nav>" would
+    # otherwise be rejected by Telegram and the seller would hear nothing.
+    title = html.escape(title or "")
     if lang == "ru":
         return (
             f"🔔 <b>Покупатель заинтересовался!</b>\n\n"
-            f"Кто-то на сайте нажал «связаться» {label} по объявлению:\n"
+            f"Покупатель (сайт или приложение) хочет связаться {label} по объявлению:\n"
             f"<b>{title}</b>\n\n"
             f"Ожидайте звонка или сообщения. 🌿"
         )
     return (
         f"🔔 <b>Xaridor qiziqdi!</b>\n\n"
-        f"Saytda kimdir <b>{title}</b> e'loningiz bo'yicha {label} bog'lanmoqchi.\n\n"
+        f"Xaridor (sayt yoki ilova orqali) <b>{title}</b> e'loningiz bo'yicha {label} bog'lanmoqchi.\n\n"
         f"Qo'ng'iroq yoki xabarni kuting. 🌿"
     )
+
+
+REPORT_REASON_LABEL = {
+    "spam": "Spam / reklama",
+    "fraud": "Firibgarlik",
+    "wrong_price": "Narx noto'g'ri",
+    "sold": "Allaqachon sotilgan",
+    "other": "Boshqa",
+}
+
+
+def report_message(listing_id: int, title: str, reason: str, note: str | None) -> str:
+    """Telegram note to every admin when a buyer flags a listing."""
+    lines = [
+        "🚩 <b>Shikoyat tushdi</b>",
+        "",
+        f"E'lon #{listing_id}: <b>{html.escape(title or '')}</b>",
+        f"Sabab: {REPORT_REASON_LABEL.get(reason, html.escape(reason))}",
+    ]
+    if note:
+        lines.append(f"Izoh: {html.escape(note)}")
+    lines += ["", f"Ko'rib chiqish: {settings.storefront_url}/sotuvchi/admin"]
+    return "\n".join(lines)

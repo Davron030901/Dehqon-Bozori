@@ -1,11 +1,17 @@
 /** Small formatting helpers, shared by cards, detail pages and the cabinet. */
 
-/** 8000 -> "8 000". Uzbek convention: space as the thousands separator. */
+/**
+ * 8000 -> "8 000". Uzbek convention: space as the thousands separator.
+ *
+ * The space is a NO-BREAK space (U+00A0), written as an escape because the
+ * character itself is invisible in an editor: a plain space would let a narrow
+ * card wrap "8" and "000" onto separate lines.
+ */
 export function formatPrice(value: number): string {
   if (!Number.isFinite(value)) return '—';
   return Math.round(value)
     .toString()
-    .replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
+    .replace(/\B(?=(\d{3})+(?!\d))/g, '\u00a0');
 }
 
 /** "2026-07-26T09:00:00Z" -> "26-iyul, 2026" */

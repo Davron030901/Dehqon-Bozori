@@ -38,8 +38,16 @@ class Settings(BaseSettings):
     # --- Web API ----------------------------------------------------------
     api_host: str = "0.0.0.0"
     api_port: int = 8000
-    # Public URL of the site, e.g. https://dehqonbozori.onrender.com
+    # Public URL of THIS service (the API), e.g. https://dehqonbozori.onrender.com
     public_base_url: str = "http://localhost:8000"
+    # Public URL of the storefront (the Next.js site on Vercel), e.g.
+    # https://dehqon-bozori.vercel.app. The bot's "open the website" button and
+    # the API's `/` signpost point here. Empty falls back to PUBLIC_BASE_URL,
+    # which is only right for the archived single-domain setup.
+    site_url: str = ""
+    # Optional download link for the Android app (an EAS build or a Play Store
+    # page). Shown by the bot and the website when set.
+    android_app_url: str = ""
     # Comma-separated allowed browser origins. "*" is fine while the API also
     # serves the frontend from the same domain.
     cors_origins: str = "*"
@@ -127,6 +135,11 @@ class Settings(BaseSettings):
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()] or ["*"]
 
     @property
+    def storefront_url(self) -> str:
+        """Where a person should be sent to browse listings, without a trailing /."""
+        return (self.site_url or self.public_base_url).rstrip("/")
+
+    @property
     def bind_port(self) -> int:
         """Port to listen on. PORT (injected by Render) wins over API_PORT."""
         return self.port or self.api_port
@@ -177,6 +190,12 @@ def check_config() -> list[str]:
         warnings.append(
             "PHOTO_ARCHIVE_CHAT_ID bo'sh — saytdan yuklangan rasmlar birinchi "
             "qayta ishga tushishda yo'qoladi. Yopiq Telegram kanal oching."
+        )
+    if settings.env != "development" and not settings.site_url:
+        warnings.append(
+            "SITE_URL bo'sh — botdagi «Saytni ochish» tugmasi API manziliga "
+            "(PUBLIC_BASE_URL) olib boradi, saytga emas. Vercel manzilini "
+            "qo'ying, masalan https://dehqon-bozori.vercel.app"
         )
     if settings.env != "development" and "*" in settings.cors_origin_list:
         warnings.append(

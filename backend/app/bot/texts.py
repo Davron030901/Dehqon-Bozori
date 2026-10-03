@@ -24,9 +24,9 @@ TEXTS: dict[str, dict[str, str]] = {
 
         # --- website bridge ---
         "web_login_ok": (
-            "✅ <b>Saytga kirdingiz!</b>\n\n"
-            "Brauzerga qayting — sahifa o'zi ochiladi. "
-            "Endi e'lonlaringizni saytdan ham qo'sha olasiz."
+            "✅ <b>Kirish tasdiqlandi!</b>\n\n"
+            "Sayt yoki ilovaga qayting — sahifa o'zi ochiladi. "
+            "Endi e'lonlaringizni u yerdan ham qo'sha olasiz."
         ),
         "web_login_expired": (
             "⏰ Bu kirish havolasi eskirgan.\n\n"
@@ -38,6 +38,7 @@ TEXTS: dict[str, dict[str, str]] = {
             "siz bilan bog'lanadi.\n\n{url}"
         ),
         "web_open_site": "🌐 Saytni ochish",
+        "web_open_app": "📱 Android ilovani yuklab olish",
         "web_contact_alert": "🔔 Saytdan xaridor bog'lanmoqchi!",
 
         # --- selling ---
@@ -208,9 +209,9 @@ TEXTS: dict[str, dict[str, str]] = {
 
         # --- website bridge ---
         "web_login_ok": (
-            "✅ <b>Вы вошли на сайт!</b>\n\n"
-            "Вернитесь в браузер — страница откроется сама. "
-            "Теперь можно добавлять объявления и с сайта."
+            "✅ <b>Вход подтверждён!</b>\n\n"
+            "Вернитесь на сайт или в приложение — страница откроется сама. "
+            "Теперь можно добавлять объявления и оттуда."
         ),
         "web_login_expired": (
             "⏰ Ссылка для входа устарела.\n\n"
@@ -221,6 +222,7 @@ TEXTS: dict[str, dict[str, str]] = {
             "Покупатели смотрят объявления без регистрации и связываются с вами напрямую.\n\n{url}"
         ),
         "web_open_site": "🌐 Открыть сайт",
+        "web_open_app": "📱 Скачать Android-приложение",
         "web_contact_alert": "🔔 Покупатель с сайта хочет связаться!",
 
         "sell_choose_category": "🗂 Выберите категорию продукта:",

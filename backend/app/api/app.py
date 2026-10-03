@@ -1,8 +1,8 @@
 """FastAPI application for Dehqon Bozori.
 
-Serves the JSON API under /api, uploaded photos under /media, and the
-mobile-first PWA at /. One process, one domain, one deploy — and the same
-database the Telegram bot uses.
+Serves the JSON API under /api and uploaded photos under /media. Three clients
+read it — the Next.js storefront, the Expo mobile app and (through the shared
+database) the Telegram bot — so all three always show the same bazaar.
 """
 from __future__ import annotations
 
@@ -140,7 +140,7 @@ else:
             "service": "Dehqon Bozori API",
             "docs": "/api/docs",
             "health": "/health",
-            "sayt": "https://dehqon-bozori.vercel.app",
+            "sayt": settings.storefront_url,
             "note": (
                 "Bu API. Sayt Next.js (frontend/) va Vercel'da turadi. "
                 "Eski PWA uchun: SERVE_LEGACY_WEB=true"

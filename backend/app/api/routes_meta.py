@@ -12,6 +12,7 @@ from sqlalchemy import func, select
 
 from app.catalog import CATEGORIES, REGIONS, UNITS
 from app.config import settings
+from app.districts import DISTRICTS
 from app.db.database import ContactEvent, Listing, User, utcnow
 
 from .deps import DbSession
@@ -29,9 +30,15 @@ async def get_meta() -> dict:
         ],
         "regions": [{"key": k, "uz": v["uz"], "ru": v["ru"]} for k, v in REGIONS.items()],
         "units": [{"key": k, "uz": v["uz"], "ru": v["ru"]} for k, v in UNITS.items()],
+        # region slug -> [{key, uz, type}], cities first. The mobile app reads
+        # this instead of shipping its own copy, so a new district reaches the
+        # phones without an app-store release.
+        "districts": DISTRICTS,
         "currency": settings.default_currency,
         "bot_username": settings.bot_username,
         "page_size": settings.web_page_size,
+        "site_url": settings.storefront_url,
+        "android_app_url": settings.android_app_url or None,
     }
 
 

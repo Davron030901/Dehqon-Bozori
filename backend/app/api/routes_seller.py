@@ -9,16 +9,22 @@ from __future__ import annotations
 from typing import Annotated
 
 from fastapi import APIRouter, File, HTTPException, Path, UploadFile
-from sqlalchemy import select
+from sqlalchemy import delete, func, select
 
 from app.catalog import CATEGORIES, REGIONS, UNITS, region_label
 from app.config import settings
-from app.db.database import Listing, User
+from app.db.database import ContactEvent, Favorite, Listing, User
 from app.districts import DISTRICT_TO_REGION, district_label
 
 from . import media
 from .deps import CurrentUser, DbSession
-from app.models.schemas import ListingIn, ListingOut, ListingPatch, UploadOut
+from app.models.schemas import (
+    FavoriteSyncIn,
+    ListingIn,
+    ListingOut,
+    ListingPatch,
+    UploadOut,
+)
 from .serializers import serialize_listing
 
 router = APIRouter(prefix="/my", tags=["seller"])
@@ -103,7 +109,27 @@ async def my_listings(
             .order_by(Listing.created_at.desc(), Listing.id.desc())
         )
     ).scalars().all()
-    return [serialize_listing(l, lang, user) for l in rows]
+
+    # One grouped query for every listing's contact taps — the number that
+    # tells a grower whether a listing is working.
+    contacts: dict[int, int] = {}
+    if rows:
+        contacts = dict(
+            (
+                await session.execute(
+                    select(ContactEvent.listing_id, func.count())
+                    .where(ContactEvent.listing_id.in_([l.id for l in rows]))
+                    .group_by(ContactEvent.listing_id)
+                )
+            ).all()
+        )
+
+    out = []
+    for listing in rows:
+        item = serialize_listing(listing, lang, user)
+        item.contacts_count = contacts.get(listing.id, 0)
+        out.append(item)
+    return out
 
 
 @router.post("/listings", response_model=ListingOut, status_code=201)
@@ -142,7 +168,37 @@ async def update_listing(
     lang: str = "uz",
 ) -> ListingOut:
     listing = await _owned(session, listing_id, user)
-    for field, value in payload.model_dump(exclude_unset=True).items():
+    data = payload.model_dump(exclude_unset=True)
+
+    # Required columns cannot be blanked by sending null.
+    for field in ("title", "category", "price", "unit", "region", "status"):
+        if field in data and data[field] is None:
+            data.pop(field)
+
+    # Validate the catalogue references as they will be AFTER the update.
+    category = data.get("category", listing.category)
+    region = data.get("region", listing.region)
+    unit = data.get("unit", listing.unit)
+    if "region" in data and data["region"] != listing.region and "district" not in data:
+        # A new province makes the old district meaningless (or wrong).
+        if listing.district in DISTRICT_TO_REGION:
+            data["district"] = None
+    district = data.get("district", listing.district)
+    validate_refs(category, region, unit, district)
+
+    if "harvest_date" in data:
+        data["harvest_date"] = data["harvest_date"].isoformat() if data["harvest_date"] else None
+    for field in ("quantity", "district", "description", "phone",
+                  "telegram_username", "whatsapp", "photo_url", "photo_file_id"):
+        if field in data and data[field] == "":
+            data[field] = None
+
+    # A new web photo replaces the old Telegram one too, or /api/photo/<id>
+    # would keep serving the picture the seller just removed.
+    if data.get("photo_url") and "photo_file_id" not in data:
+        data["photo_file_id"] = None
+
+    for field, value in data.items():
         setattr(listing, field, value)
     await session.commit()
     await session.refresh(listing)
@@ -157,3 +213,101 @@ async def delete_listing(
     listing = await _owned(session, listing_id, user)
     await session.delete(listing)
     await session.commit()
+
+
+# --------------------------------------------------------------------------- #
+#  Favourites — the same table the bot's ⭐ button writes to
+# --------------------------------------------------------------------------- #
+@router.get("/favorites", response_model=list[ListingOut])
+async def my_favorites(
+    session: DbSession, user: CurrentUser, lang: str = "uz"
+) -> list[ListingOut]:
+    """Saved listings, newest save first. Sold ones stay, flagged as sold, so a
+    buyer can see why the tomatoes they saved yesterday are gone."""
+    rows = (
+        await session.execute(
+            select(Listing)
+            .join(Favorite, Favorite.listing_id == Listing.id)
+            .where(Favorite.user_id == user.id)
+            .order_by(Favorite.created_at.desc(), Favorite.id.desc())
+            .limit(200)
+        )
+    ).scalars().all()
+    ids = {l.seller_id for l in rows}
+    sellers = {
+        u.id: u
+        for u in (await session.execute(select(User).where(User.id.in_(ids)))).scalars()
+    } if ids else {}
+    return [serialize_listing(l, lang, sellers.get(l.seller_id)) for l in rows]
+
+
+@router.get("/favorites/ids", response_model=list[int])
+async def my_favorite_ids(session: DbSession, user: CurrentUser) -> list[int]:
+    """Just the ids — cheap enough to fetch on every app start to paint hearts."""
+    rows = (
+        await session.execute(
+            select(Favorite.listing_id).where(Favorite.user_id == user.id)
+        )
+    ).scalars().all()
+    return list(rows)
+
+
+@router.put("/favorites/{listing_id}", status_code=204)
+async def add_favorite(
+    session: DbSession, user: CurrentUser, listing_id: Annotated[int, Path(ge=1)]
+) -> None:
+    if await session.get(Listing, listing_id) is None:
+        raise HTTPException(404, "E'lon topilmadi / Объявление не найдено")
+    exists = (
+        await session.execute(
+            select(Favorite.id).where(
+                Favorite.user_id == user.id, Favorite.listing_id == listing_id
+            )
+        )
+    ).scalar_one_or_none()
+    if exists is None:
+        session.add(Favorite(user_id=user.id, listing_id=listing_id))
+        await session.commit()
+
+
+@router.delete("/favorites/{listing_id}", status_code=204)
+async def remove_favorite(
+    session: DbSession, user: CurrentUser, listing_id: Annotated[int, Path(ge=1)]
+) -> None:
+    await session.execute(
+        delete(Favorite).where(
+            Favorite.user_id == user.id, Favorite.listing_id == listing_id
+        )
+    )
+    await session.commit()
+
+
+@router.post("/favorites/sync", response_model=list[int])
+async def sync_favorites(
+    session: DbSession, user: CurrentUser, payload: FavoriteSyncIn
+) -> list[int]:
+    """Merge favourites a device saved while signed out, return the full set.
+
+    Buyers never have to register, so hearts tapped before signing in live on
+    the device. Signing in should not lose them — and should not duplicate the
+    ones the bot already has.
+    """
+    have = set(
+        (
+            await session.execute(
+                select(Favorite.listing_id).where(Favorite.user_id == user.id)
+            )
+        ).scalars().all()
+    )
+    wanted = {i for i in payload.ids if i > 0} - have
+    if wanted:
+        existing = set(
+            (
+                await session.execute(select(Listing.id).where(Listing.id.in_(wanted)))
+            ).scalars().all()
+        )
+        for listing_id in sorted(existing):
+            session.add(Favorite(user_id=user.id, listing_id=listing_id))
+        await session.commit()
+        have |= existing
+    return sorted(have)

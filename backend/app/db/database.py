@@ -154,6 +154,36 @@ class ContactEvent(Base):
 
 
 # --------------------------------------------------------------------------- #
+#  Moderation — a buyer flags a listing as spam, fraud or already sold
+# --------------------------------------------------------------------------- #
+REPORT_REASONS = ("spam", "fraud", "wrong_price", "sold", "other")
+
+
+class Report(Base):
+    """A complaint about a listing.
+
+    Buyers do not register, so `reporter_id` is usually empty — the report is
+    still worth having, because the founder looks at the listing, not at who
+    complained. Resolving a report never deletes anything by itself; the admin
+    decides what to do with the listing.
+    """
+
+    __tablename__ = "reports"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    listing_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("listings.id", ondelete="CASCADE"), index=True
+    )
+    reporter_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    reason: Mapped[str] = mapped_column(String(16))
+    note: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    status: Mapped[str] = mapped_column(String(16), default="open", index=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+
+# --------------------------------------------------------------------------- #
 #  Website auth — passwordless, verified through the Telegram bot
 # --------------------------------------------------------------------------- #
 class AuthCode(Base):

@@ -10,13 +10,18 @@ listings, favourites and notifications follow the person across both surfaces.
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException
+from typing import Annotated
+
+from fastapi import APIRouter, Header, HTTPException, Request
 from sqlalchemy import delete, func, select
 
+from app.catalog import REGIONS
 from app.config import settings
 from app.db.database import AuthCode, Listing, User, WebSession, utcnow
+from app.db.queries import normalize_phone
 
-from .deps import CurrentUser, DbSession, is_admin
+from . import ratelimit
+from .deps import CurrentUser, DbSession, _token_from_header, is_admin
 from app.models.schemas import AuthPollOut, AuthStartOut, MeOut, ProfileIn
 from .serializers import serialize_seller
 
@@ -28,7 +33,7 @@ def _aware(dt):
 
 
 @router.post("/start", response_model=AuthStartOut)
-async def start_login(session: DbSession) -> AuthStartOut:
+async def start_login(request: Request, session: DbSession) -> AuthStartOut:
     # Without a bot username there is no t.me link to send anyone to. Returning
     # an empty string here used to hand the browser a dead button and no
     # explanation; fail loudly instead, so a missing BOT_USERNAME is a
@@ -40,6 +45,9 @@ async def start_login(session: DbSession) -> AuthStartOut:
             "BOT_USERNAME sozlanmagan — Telegram orqali kirish o'chirilgan / "
             "login disabled until BOT_USERNAME is set",
         )
+
+    # Each call writes a row; a loop should not be able to fill the table.
+    ratelimit.enforce(f"auth:{ratelimit.client_ip(request)}", limit=20, window_seconds=600)
 
     # Opportunistic cleanup of stale codes.
     await session.execute(delete(AuthCode).where(AuthCode.expires_at < utcnow()))
@@ -101,6 +109,16 @@ async def me(session: DbSession, user: CurrentUser) -> MeOut:
 @router.patch("/me", response_model=MeOut)
 async def update_me(session: DbSession, user: CurrentUser, payload: ProfileIn) -> MeOut:
     data = payload.model_dump(exclude_unset=True, exclude_none=True)
+    if "region" in data and data["region"] and data["region"] not in REGIONS:
+        raise HTTPException(422, f"Noma'lum hudud: {data['region']}")
+    if "phone" in data:
+        # Same normalisation the admin tools use, so a seller who registers on
+        # the site is matched — not duplicated — when the founder later adds a
+        # listing for the same number.
+        data["phone"] = normalize_phone(data["phone"])
+    for field in ("full_name", "village"):
+        if field in data:
+            data[field] = data[field].strip() or None
     for field in ("full_name", "phone", "region", "village", "language"):
         if field in data:
             setattr(user, field, data[field])
@@ -109,8 +127,22 @@ async def update_me(session: DbSession, user: CurrentUser, payload: ProfileIn) -
 
 
 @router.post("/logout")
-async def logout(session: DbSession, user: CurrentUser) -> dict:
-    await session.execute(delete(WebSession).where(WebSession.user_id == user.id))
+async def logout(
+    session: DbSession,
+    user: CurrentUser,
+    authorization: Annotated[str | None, Header()] = None,
+    everywhere: bool = False,
+) -> dict:
+    """End this session — or, with `everywhere=true`, every session.
+
+    Signing out of the website used to sign the phone app out too, because it
+    deleted every token the person had. One device, one token.
+    """
+    if everywhere:
+        await session.execute(delete(WebSession).where(WebSession.user_id == user.id))
+    else:
+        token = _token_from_header(authorization)
+        await session.execute(delete(WebSession).where(WebSession.token == token))
     await session.commit()
     return {"ok": True}
 

@@ -339,12 +339,16 @@ async def main() -> int:
         check("negative price rejected", r.status_code == 422)
 
         # ----------------------------------------------------------- site ---
-        for path in ("/", "/sell", "/my", "/admin", "/app.js", "/styles.css",
-                     "/manifest.webmanifest", "/sw.js", "/icon.svg"):
+        # The storefront is the Next.js app on Vercel. The archived vanilla-JS
+        # PWA in backend/web/ is off by default (SERVE_LEGACY_WEB=false), so
+        # this service must answer `/` with a signpost, not a stale website.
+        r = await c.get("/")
+        check("/ is an API signpost, not the archived site",
+              r.status_code == 200 and r.json().get("docs") == "/api/docs")
+        for path in ("/sell", "/my", "/admin", "/app.js", "/sw.js",
+                     f"/e/{listing_id}"):
             r = await c.get(path)
-            check(f"page serves: {path}", r.status_code == 200)
-        r = await c.get(f"/e/{listing_id}")
-        check("page serves: /e/<id>", r.status_code == 200)
+            check(f"archived page not served: {path}", r.status_code == 404)
 
         # ----------------------------------- public REST surface (no /api) ---
         r = await c.get("/health")
@@ -445,11 +449,207 @@ async def main() -> int:
 
         settings.admin_api_token = ""
 
+        # ======================================================================
+        #  Round two: what the mobile app and the upgraded website rely on
+        # ======================================================================
+        from app.api import notify, ratelimit
+
+        ratelimit.reset()
+        sent: list[tuple[int, str]] = []
+        real_send = notify.send_background
+        notify.send_background = lambda chat_id, text: sent.append((chat_id, text))
+
+        # ----------------------------------------------------- meta & facets
+        m = (await c.get("/api/meta")).json()
+        check("meta ships districts for all 14 regions", len(m["districts"]) == 14)
+        check("Ko'kdala (the 175th district) is in Kashkadarya",
+              any(d["key"] == "kokdala" for d in m["districts"]["kashkadarya"]))
+        check("meta names the storefront", m["site_url"].startswith("http"))
+
+        f = (await c.get("/api/facets")).json()
+        active_total = (await c.get("/api/listings")).json()["total"]
+        check("facets total matches the active feed", f["total"] == active_total,
+              f"{f['total']} vs {active_total}")
+        check("facets count per category", f["categories"].get("fruits") == 1,
+              str(f["categories"]))
+        check("facets count per region", f["regions"].get("samarkand", 0) >= 2)
+        f = (await c.get("/api/facets?region=bukhara")).json()
+        check("district facets scoped to the chosen region", f["districts"] == {},
+              str(f["districts"]))
+
+        # --------------------------------------------------------- ids filter
+        all_ids = [i["id"] for i in (await c.get("/api/listings?include_sold=true&per_page=100")).json()["items"]]
+        some = all_ids[:2]
+        r = await c.get(f"/api/listings?ids={some[0]},{some[1]},junk,{some[0]}&include_sold=true")
+        check("ids= returns exactly the saved listings",
+              sorted(i["id"] for i in r.json()["items"]) == sorted(some), r.text[:120])
+        r = await c.get("/api/listings?ids=")
+        check("empty ids= returns nothing, not everything", r.json()["total"] == 0)
+
+        # ------------------------------------------------------------ similar
+        uzum = next(i for i in (await c.get("/api/listings?q=uzum")).json()["items"])
+        r = await c.get(f"/api/listings/{listing_id}/similar")
+        check("similar listings endpoint", r.status_code == 200
+              and all(i["id"] != listing_id for i in r.json()))
+        r = await c.get(f"/api/listings/{uzum['id']}/similar")
+        check("similar = same category only",
+              all(i["category"] == "fruits" for i in r.json()))
+        check("similar on missing listing -> 404",
+              (await c.get("/api/listings/999999/similar")).status_code == 404)
+
+        # ----------------------------------------------------- seller profile
+        r = await c.get("/api/sellers/555001")
+        sp = r.json()
+        check("public seller profile", r.status_code == 200
+              and sp["full_name"] == "Ali Aka" and sp["region_label"] == "Samarqand")
+        check("seller profile counts listings",
+              sp["total_listings"] >= sp["active_listings"] >= 1, str(sp))
+        check("unknown seller -> 404", (await c.get("/api/sellers/123")).status_code == 404)
+        r = await c.get("/api/listings?seller_id=555001")
+        check("a seller's listings via seller_id", r.json()["total"] == sp["active_listings"])
+
+        # -------------------------------------------- contact notify throttle
+        sent.clear()
+        for _ in range(3):
+            await c.post(f"/api/listings/{listing_id}/contact?channel=call&source=app")
+        to_seller = [x for x in sent if x[0] == 555001]
+        check("seller pinged once, not once per tap", len(to_seller) == 1, str(len(to_seller)))
+        async with session_factory() as s:
+            from sqlalchemy import func, select
+            n_app = (await s.execute(
+                select(func.count()).select_from(ContactEvent).where(ContactEvent.source == "app")
+            )).scalar_one()
+        check("every tap still counted, tagged source=app", n_app == 3, str(n_app))
+        check("notification escapes HTML in titles",
+              "&lt;" in notify.contact_message("Olma <1-nav>", "call"))
+
+        # ------------------------------------------------------------ reports
+        r = await c.post(f"/api/listings/{listing_id}/report",
+                         json={"reason": "fraud", "note": "Narx <yolg'on>"})
+        check("buyer can report a listing anonymously", r.status_code == 201, r.text[:100])
+        check("admins get a Telegram note about the report",
+              any(chat == 777 and "Shikoyat" in text for chat, text in sent))
+        r = await c.post(f"/api/listings/{listing_id}/report", json={"reason": "aliens"})
+        check("unknown report reason rejected", r.status_code == 422)
+        r = await c.post("/api/listings/999999/report", json={"reason": "spam"})
+        check("report on missing listing -> 404", r.status_code == 404)
+        codes = [
+            (await c.post(f"/api/listings/{listing_id}/report", json={"reason": "spam"})).status_code
+            for _ in range(5)
+        ]
+        check("report endpoint is rate limited", 429 in codes, str(codes))
+
+        check("non-admin cannot read reports",
+              (await c.get("/api/admin/reports", headers=H)).status_code == 403)
+        reports = (await c.get("/api/admin/reports", headers=AH)).json()
+        check("admin sees open reports with the listing title",
+              len(reports) >= 1 and reports[-1]["listing_title"], str(reports[:1]))
+        d = (await c.get("/api/admin/dashboard", headers=AH)).json()
+        check("dashboard counts open reports", d["totals"]["open_reports"] == len(reports))
+        r = await c.patch(f"/api/admin/reports/{reports[0]['id']}", headers=AH,
+                          json={"status": "resolved"})
+        check("admin resolves a report", r.json()["status"] == "resolved")
+        left = (await c.get("/api/admin/reports", headers=AH)).json()
+        check("resolved report leaves the open queue", len(left) == len(reports) - 1)
+
+        # ---------------------------------------------------------- favorites
+        check("favorites need a session", (await c.get("/api/my/favorites")).status_code == 401)
+        r = await c.put(f"/api/my/favorites/{listing_id}", headers=H)
+        check("add favorite", r.status_code == 204)
+        r = await c.put(f"/api/my/favorites/{listing_id}", headers=H)
+        check("adding twice is harmless", r.status_code == 204)
+        check("favorite ids", (await c.get("/api/my/favorites/ids", headers=H)).json() == [listing_id])
+        async with session_factory() as s:
+            from app.db.queries import get_user_favorites
+            bot_view = await get_user_favorites(s, 555001)
+        check("web/app favorite visible to the BOT's ⭐ list",
+              [l.id for l in bot_view] == [listing_id])
+        # Any other listing will do — saved on the device while signed out.
+        device_fav = next(i for i in all_ids if i != listing_id)
+        r = await c.post("/api/my/favorites/sync", headers=H,
+                         json={"ids": [device_fav, 999999, listing_id]})
+        check("sync merges device favorites, skips unknown ids",
+              sorted(r.json()) == sorted({listing_id, device_fav}), r.text)
+        favs = (await c.get("/api/my/favorites", headers=H)).json()
+        check("favorites list returns full listings", len(favs) == 2 and favs[0]["title"])
+        r = await c.delete(f"/api/my/favorites/{device_fav}", headers=H)
+        check("remove favorite", r.status_code == 204
+              and (await c.get("/api/my/favorites/ids", headers=H)).json() == [listing_id])
+        check("favoriting a missing listing -> 404",
+              (await c.put("/api/my/favorites/999999", headers=H)).status_code == 404)
+
+        # ------------------------------------------------- full listing edit
+        r = await c.post("/api/my/listings", headers=H, json={
+            "title": "Tahrir uchun", "category": "vegetables", "price": 5000,
+            "unit": "kg", "region": "samarkand", "district": "urgut",
+        })
+        edit_id = r.json()["id"]
+        r = await c.patch(f"/api/my/listings/{edit_id}", headers=H, json={
+            "category": "honey", "unit": "liter", "quantity": "20 litr",
+            "harvest_date": "2026-08-01", "title": None,
+        })
+        e = r.json()
+        check("seller can change category, unit, quantity, harvest date",
+              r.status_code == 200 and e["category"] == "honey" and e["unit"] == "liter"
+              and e["quantity"] == "20 litr" and e["harvest_date"] == "2026-08-01",
+              r.text[:160])
+        check("null on a required field is ignored, not stored", e["title"] == "Tahrir uchun")
+        r = await c.patch(f"/api/my/listings/{edit_id}", headers=H, json={"region": "fergana"})
+        check("changing region drops a district from the old region",
+              r.json()["region"] == "fergana" and r.json()["district"] is None, r.text[:160])
+        r = await c.patch(f"/api/my/listings/{edit_id}", headers=H, json={"district": "urgut"})
+        check("district from another region rejected", r.status_code == 422)
+        r = await c.patch(f"/api/my/listings/{edit_id}", headers=H, json={"category": "rockets"})
+        check("unknown category rejected on edit", r.status_code == 422)
+        r = await c.patch(f"/api/my/listings/{edit_id}", headers=H,
+                          json={"photo_url": photo_url})
+        check("new web photo replaces the old one", r.json()["photo"] == photo_url)
+
+        mine = (await c.get("/api/my/listings", headers=H)).json()
+        pomidor = next(i for i in mine if i["id"] == listing_id)
+        check("seller sees how many buyers reached out",
+              isinstance(pomidor["contacts_count"], int) and pomidor["contacts_count"] >= 3,
+              str(pomidor.get("contacts_count")))
+        public = (await c.get(f"/api/listings/{listing_id}")).json()
+        check("contact counts stay private on the public read", public["contacts_count"] is None)
+
+        # ----------------------------------------------------------- profile
+        r = await c.patch("/api/auth/me", headers=H, json={"region": "atlantis"})
+        check("profile rejects an unknown region", r.status_code == 422)
+        r = await c.patch("/api/auth/me", headers=H, json={"phone": "90 123 45 67"})
+        check("profile phone normalised to +998",
+              r.json()["user"]["phone"] == "+998901234567", r.text[:120])
+
+        # -------------------------------------------------- auth rate limit
+        ratelimit.reset()
+        codes = [(await c.post("/api/auth/start")).status_code for _ in range(21)]
+        check("auth/start is rate limited", codes[-1] == 429 and codes[0] == 200, str(codes[-3:]))
+        ratelimit.reset()
+
+        notify.send_background = real_send
+
         # --------------------------------------------------------- logout ---
+        # Two devices for the same person: signing out of one keeps the other.
+        async with session_factory() as s:
+            code = AuthCode.new()
+            code.approved, code.user_id = True, 555001
+            s.add(code)
+            await s.commit()
+            phone_code = code.code
+        PH = {"Authorization": f"Bearer {(await c.get(f'/api/auth/poll?code={phone_code}')).json()['token']}"}
+
         r = await c.post("/api/auth/logout", headers=H)
         check("logout works", r.status_code == 200)
         r = await c.get("/api/auth/me", headers=H)
         check("token dead after logout", r.status_code == 401)
+        r = await c.get("/api/auth/me", headers=PH)
+        check("logging out on the web keeps the phone app signed in", r.status_code == 200)
+        await c.post("/api/auth/logout?everywhere=true", headers=PH)
+        check("logout everywhere ends every session",
+              (await c.get("/api/auth/me", headers=PH)).status_code == 401)
+
+    from app.api import notify as _notify
+    await _notify.close_bot()
 
     print("\n" + "=" * 62)
     print(f"  {len(PASS)} passed, {len(FAIL)} failed")
