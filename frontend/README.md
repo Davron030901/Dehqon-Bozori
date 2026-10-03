@@ -76,39 +76,45 @@ the demo data whenever the API does not answer within 6 seconds.
 frontend/
 ├── app/
 │   ├── layout.tsx                     Header + Footer, Inter font, metadata, PWA
-│   ├── page.tsx                       Homepage — server-rendered feed
-│   ├── loading.tsx  not-found.tsx
-│   ├── mahsulot/[id]/page.tsx         Product detail + contact buttons
+│   ├── page.tsx                       Homepage — filters in the URL, served by the API
+│   ├── loading.tsx  not-found.tsx  sitemap.ts  robots.ts
+│   ├── mahsulot/[id]/page.tsx         Product detail: contact, ♡, share, report, similar
+│   ├── dehqon/[id]/page.tsx           A seller's public page
+│   ├── saqlangan/page.tsx             Saved listings (device, merged into the account)
 │   └── sotuvchi/
-│       ├── royxatdan-otish/page.tsx   Seller registration
-│       ├── elon-qoshish/page.tsx      Add a listing (photo, category, contacts)
-│       ├── kabinet/page.tsx           Seller dashboard — mark sold, delete
-│       └── admin/page.tsx             Founder's panel — stats, post for a
-│                                      grower who phoned, moderate everything
+│       ├── royxatdan-otish/page.tsx   Seller profile
+│       ├── elon-qoshish/page.tsx      Add a listing (asks for Telegram sign-in first)
+│       ├── tahrirlash/[id]/page.tsx   Edit any field of a listing
+│       ├── kabinet/page.tsx           Seller dashboard — sold, edit, delete, buyer contacts
+│       └── admin/page.tsx             Founder's panel — stats, post for a grower,
+│                                      moderate everything, buyer reports
 │
 ├── components/
 │   ├── Header.tsx  Footer.tsx  Badge.tsx
-│   ├── SearchBar.tsx                  debounced, 250 ms
-│   ├── CategoryChips.tsx              horizontal scroll, 5 categories
-│   ├── FilterBar.tsx                  region + sort
+│   ├── SearchBar.tsx                  debounced, 400 ms, survives server round-trips
+│   ├── CategoryChips.tsx              all 11 categories, with counts
+│   ├── FilterBar.tsx                  region + district + sort, with counts
 │   ├── ProductCard.tsx  ProductGrid.tsx
+│   ├── FavoriteButton.tsx  ShareButton.tsx  ReportButton.tsx
+│   ├── ListingForm.tsx                one form for add / edit / admin
 │   ├── ContactButtons.tsx             Call / Telegram / WhatsApp
-│   ├── HomeFeed.tsx                   client-side search, filter, sort
+│   ├── HomeFeed.tsx                   URL-driven filters + "load more"
 │   ├── LoginGate.tsx                  passwordless Telegram sign-in
-│   └── PwaRegister.tsx
+│   └── AutoRefresh.tsx  PwaRegister.tsx
 │
 ├── lib/
 │   ├── types.ts                       Listing, Seller, filters, form inputs
 │   ├── api.ts                         ← the only place that fetches anything
-│   ├── districts.ts                   GENERATED — 14 regions, 205 districts
-│   ├── mockData.ts                    12 demo listings
-│   ├── strings.ts                     every UI string (i18n-ready)
+│   ├── favorites.ts                   one store for every ♡
+│   ├── districts.ts                   GENERATED — 14 regions, 175 districts + cities
+│   ├── mockData.ts                    14 demo listings
+│   ├── strings.ts                     every UI string; the 11 categories and 7 units
 │   ├── format.ts                      price / date / tel: helpers
-│   └── session.ts                     token + offline drafts (localStorage)
+│   └── session.ts                     token, favourites, drafts (localStorage)
 │
 ├── scripts/verify.mjs                 architecture rules, zero dependencies
-├── tests/                             vitest — filters, sorting, formatting
-└── public/                            icon.svg, manifest.webmanifest, sw.js, robots.txt
+├── tests/                             vitest — filters ↔ URL, request bodies, formatting
+└── public/                            icon.svg, manifest.webmanifest, sw.js
 ```
 
 ### The one rule worth keeping
@@ -136,33 +142,33 @@ you are standing in a field rather than sitting at a desk.
 
 ## How the homepage works
 
-The server component fetches once and streams HTML, so the first paint needs no
-JavaScript round-trip — which matters a lot on rural 3G. `HomeFeed` then does
-**search, category, region and sort entirely client-side** on that array, so
-every interaction is instant and costs no extra request.
+The filters live in the URL — `/?category=honey&region=samarkand&sort=cheapest`
+— and the server component asks the API for exactly that page. A filtered view
+is therefore a link a trader can forward in Telegram, the back button works,
+and the browser never downloads the whole bazaar to show 24 listings of it.
+(It used to fetch the first 100 listings and filter them in the browser, so
+listing number 101 was invisible to every buyer.) "Yana ko’rsatish" appends the
+next page from the client.
 
-It also refreshes itself every 30 seconds via `components/AutoRefresh.tsx`, so a
-trader who leaves the page open all morning sees produce posted since they
-opened it. `router.refresh()` re-runs the server component and streams new HTML
-into the existing page — the search box keeps what they typed and the scroll
-position holds. A hidden tab and an offline device are both skipped, because
-that is data a buyer on a village plan pays for and never sees.
+Filter options come from `/api/facets`, which counts active listings per
+category, region and district — so a chip or a dropdown entry never leads to
+an empty page, and each one shows how many listings are behind it.
 
-Filters:
+- **Category** — all eleven of the bot's categories; empty ones are hidden
+- **Region** — only regions that have listings, in a fixed order (Samarkand
+  first). Not `localeCompare`: Node's ICU and Chrome sort "Toshkent shahri" /
+  "Toshkent viloyati" differently, and the page failed to hydrate
+- **District** — appears once a region is chosen, cities first
+- **Sort** — newest, cheaper, dearer, most viewed
 
-- **Category** — five chips, plus *Boshqa* when such listings exist
-- **Region** — only regions that actually have listings
-- **District** — appears once a region is chosen, and lists only districts with
-  produce in them. Hidden at "all regions", because 205 districts in one
-  dropdown is a wall rather than a filter
+It also refreshes itself every 30 seconds via `components/AutoRefresh.tsx`.
+A hidden tab and an offline device are both skipped, because that is data a
+buyer on a village plan pays for and never sees.
 
-Sort options:
-
-- **Eng yangi** — newest first
-- **Arzon narx** — cheapest first
-- **Yaqin hudud** — listings in the selected region first (Samarkand by
-  default). There is no GPS in Phase 1, so "nearest" means "same region",
-  and the code says so rather than pretending otherwise.
+**Views are counted honestly.** The detail page fetches once per request
+(`react.cache`), and links to listings never prefetch — a prefetch renders the
+page, and the homepage alone used to credit 24 listings with views nobody made.
+`npm run verify` fails if either comes back.
 
 ---
 
@@ -205,6 +211,8 @@ keyed by stable slugs, so labels can be translated without touching data.
 4. Add environment variables:
    - `NEXT_PUBLIC_API_URL` — e.g. `https://dehqon-bozori.onrender.com`
    - `NEXT_PUBLIC_BOT_USERNAME` — e.g. `DehqonBozoriBot`
+   - `NEXT_PUBLIC_SITE_URL` — this site's own URL, for the sitemap and share links
+   - `NEXT_PUBLIC_ANDROID_APP_URL` — optional; shows a download-the-app button
 5. Deploy. Framework preset, build command and output directory are all
    detected automatically — there is no custom server.
 

@@ -180,6 +180,8 @@ does steps 3–5 for you.
 | `ADMIN_API_TOKEN` | recommended | Secret for `POST /listings`, `POST /sellers`, `PATCH /sold`. **Unset = those endpoints are disabled**, never open |
 | `PHOTO_ARCHIVE_CHAT_ID` | recommended | See *Photos* below |
 | `PUBLIC_BASE_URL` | ✅ | This service's public URL |
+| `SITE_URL` | recommended | The storefront's URL (Vercel). The bot's "open the website" button and admin notifications link here; unset falls back to `PUBLIC_BASE_URL`, which is the API |
+| `ANDROID_APP_URL` | optional | APK / Play Store link. When set, the bot offers a download button and `/api/meta` exposes it |
 | `CORS_ORIGINS` | recommended | Your Vercel domain. `*` is fine at first, tighten later |
 | `SERVE_LEGACY_WEB` | optional | `true` brings back the archived `web/` PWA at `/`. Default `false` |
 | `PORT` | auto | Render injects it; the app binds to it |
@@ -238,15 +240,27 @@ Messages will fill up with produce.
 | POST | `/listings` | 🔒 `X-Admin-Token` — create for any seller, matched by phone |
 | PATCH | `/listings/{id}/sold` | 🔒 `X-Admin-Token` |
 
-**Buyer-facing, `/api` prefix** — `/api/listings`, `/api/listings/{id}/contact`
-(records the lead *and* pings the seller on Telegram), `/api/photo/{id}`,
-`/api/meta`, `/api/stats`.
+**Buyer-facing, `/api` prefix — anonymous**
 
-**Seller, bearer token** — `/api/my/listings` (GET, POST, PATCH, DELETE),
-`/api/my/upload`. These can only ever act on the caller's own listings.
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/api/listings` | `q`, `category`, `region`, `district`, `min_price`, `max_price`, `sort`, `seller_id`, `ids=1,2,3` (a device's favourites), `include_sold`, `page`, `per_page`, `lang=uz\|ru` |
+| GET | `/api/listings/{id}` | Detail; counts a view unless `count_view=false` |
+| GET | `/api/listings/{id}/similar` | Same category, same region first |
+| GET | `/api/facets` | Active-listing counts per category / region / district (`region=` scopes districts) |
+| GET | `/api/sellers/{id}` | A seller's public card; their listings via `/api/listings?seller_id=` |
+| POST | `/api/listings/{id}/contact` | Records the lead and pings the seller on Telegram — at most once per buyer per listing per 10 min. `source=web\|app` |
+| POST | `/api/listings/{id}/report` | Spam / fraud / wrong price / sold / other — admins get a Telegram message. Rate-limited |
+| GET | `/api/photo/{id}`, `/api/meta`, `/api/stats` | Photos from either surface; catalogue incl. districts; public numbers |
+
+**Seller, bearer token** — `/api/my/listings` (GET, POST, PATCH any field,
+DELETE; GET includes `contacts_count`), `/api/my/upload`,
+`/api/my/favorites` (GET, `ids`, PUT/DELETE `{id}`, POST `sync`),
+`/api/auth/me` (GET, PATCH), `/api/auth/logout` (this device; `everywhere=true`
+for all). These can only ever act on the caller's own data.
 
 **Admin, bearer token + `ADMIN_IDS`** — `/api/admin/dashboard`,
-`/api/admin/listings`.
+`/api/admin/listings`, `/api/admin/reports` (GET, PATCH `{id}` to resolve).
 
 ### Two ways to authenticate, and why
 

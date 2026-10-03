@@ -27,13 +27,18 @@ Kredit karta **kerak emas**.
              │       └──────────────────┘
              │                 ▲
              │                 │
-             └───────►┌────────┴─────────┐
-                      │  Next.js sayt    │  VERCEL
+             ├───────►┌────────┴─────────┐
+             │        │  Next.js sayt    │  VERCEL
+             │        └──────────────────┘
+             │        ┌──────────────────┐
+             └───────►│  Mobil ilova     │  EAS → APK / Play Market
+                      │  (Android, iOS)  │  (API'ga to'g'ridan-to'g'ri)
                       └──────────────────┘
 ```
 
-Muhim jihati: **bot ham, sayt ham bitta bazaga yozadi.** Sinxronizatsiya yo'q,
-chunki kerak emas. Botda joylangan e'lon saytda darhol chiqadi.
+Muhim jihati: **bot ham, sayt ham, ilova ham bitta bazaga yozadi.**
+Sinxronizatsiya yo'q, chunki kerak emas. Botda joylangan e'lon saytda va
+ilovada darhol chiqadi.
 
 Render'da **faqat API va bot** turadi — do'kon oynasi emas. Render manzilini
 brauzerda ochsangiz qisqa JSON ko'rasiz, bu to'g'ri.
@@ -202,7 +207,10 @@ ichiga oladi.
 
 Ular allaqachon ishlab turgan bazani yangilash uchun. Masalan `0002` —
 `public_sellers` ko'rinishidagi RLS teshigini yopadi, `0003` — tuman bo'yicha
-qidiruv indekslarini qo'shadi. Keyinroq kod yangilanganda "bu migratsiyani
+qidiruv indekslarini qo'shadi, `0004` — xaridor shikoyatlari (`reports`)
+jadvalini RLS bilan yaratadi. **Eski bazani yangilayotgan bo'lsangiz `0004` ni
+SQL Editor'da bir marta ishga tushiring** — backend jadvalni o'zi ham yaratadi,
+lekin RLS faqat shu skript orqali yoqiladi. Keyinroq kod yangilanganda "bu migratsiyani
 ishlatish kerakmi?" degan savol tug'ilsa, fayl boshidagi izohda javob bor.
 
 ### 3.5 Ulanish manzilini olish
@@ -280,6 +288,8 @@ Pastda **Advanced** → **Add Environment Variable**. Quyidagilarni qo'shing:
 | `ADMIN_API_TOKEN` | quyidagi buyruq bilan yarating |
 | `PHOTO_ARCHIVE_CHAT_ID` | 1.3-bosqichdagi kanal ID |
 | `CORS_ORIGINS` | `*` — 6-bosqichda o'zgartiramiz |
+| `SITE_URL` | `https://dehqon-bozori.vercel.app` — 5-bosqichdan keyin aniq manzilni qo'ying |
+| `ANDROID_APP_URL` | ixtiyoriy — 11-bosqichdagi APK havolasi |
 | `ENV` | `production` |
 
 `ADMIN_API_TOKEN` uchun terminalda:
@@ -304,6 +314,7 @@ bitta funksiyani o'chiradi:
 | `BOT_USERNAME` | Saytdagi «Telegram orqali kirish» — sotuvchi saytdan e'lon qo'sha olmaydi |
 | `ADMIN_IDS` | Botdagi `/admin` va `/stats`, saytdagi admin panel |
 | `ADMIN_API_TOKEN` | `POST /listings` va boshqa mashina endpointlari (503) |
+| `SITE_URL` | Botdagi «🌐 Saytni ochish» tugmasi saytga emas, API'ga olib boradi |
 
 Ilova ishga tushganda ularning har biri uchun logda ogohlantirish chiqadi —
 4.3-bosqichda o'shani qidiring.
@@ -410,6 +421,8 @@ Yana uchtasi:
 |---|---|
 | `NEXT_PUBLIC_API_URL` | `https://dehqon-bozori-backend.onrender.com` |
 | `NEXT_PUBLIC_BOT_USERNAME` | `DehqonBozoriBot` |
+| `NEXT_PUBLIC_SITE_URL` | `https://dehqon-bozori.vercel.app` — sitemap va ulashish havolalari uchun |
+| `NEXT_PUBLIC_ANDROID_APP_URL` | ixtiyoriy — APK havolasi (11-bosqich); bo'lsa saytda «yuklab olish» tugmasi chiqadi |
 
 > Oxirida `/` qo'ymang.
 > `NEXT_PUBLIC_` bilan boshlanuvchi o'zgaruvchilar brauzerga ko'rinadi —
@@ -681,9 +694,10 @@ qiladi. Qo'lda hech narsa qilish shart emas.
 **Deploy'dan oldin** har doim:
 
 ```bash
-python test_all.py                              # backend · contract · bot · frontend · security
+python test_all.py                              # backend · contract · bot · frontend · security · mobile
 cd frontend && npm run check                    # verify + typecheck + lint + vitest
 cd frontend && npm run build                    # Vercel nimani qilsa, shuni
+cd mobile   && npm run check && npm run bundle  # ilova: tekshiruvlar + Android bundle
 cd backend  && docker build -t dehqon-bozori .  # Render nimani qilsa, shuni
 ```
 
@@ -691,13 +705,52 @@ cd backend  && docker build -t dehqon-bozori .  # Render nimani qilsa, shuni
 shuning uchun GitHub'da yashil belgi turgan bo'lsa deploy xavfsiz.
 
 > Agar `python test_all.py` da `district slugs` bilan bog'liq xato chiqsa —
-> `cd frontend && npm run gen:districts` ni ishlatib, natijani commit qiling.
-> `districts.ts` — yaratiladigan fayl, va u eskirgan bo'lishi mumkin.
+> `cd frontend && npm run gen:districts` va `cd mobile && npm run gen:districts`
+> ni ishlatib, natijani commit qiling. `districts.ts` — yaratiladigan fayl, va
+> u eskirgan bo'lishi mumkin.
 
 Environment o'zgaruvchisini o'zgartirsangiz:
 
 - **Render** — o'zi qayta deploy qiladi
 - **Vercel** — **qo'lda** Redeploy kerak (`NEXT_PUBLIC_*` kod ichiga yoziladi)
+
+---
+
+## 11-bosqich — Mobil ilova (APK) (20 daqiqa)
+
+Batafsil: **[`mobile/README.md`](mobile/README.md)**. Qisqasi:
+
+1. `mobile/eas.json` da `EXPO_PUBLIC_API_URL` — Render manzilingiz
+   (`preview` va `production` profillarida). Standart qiymat
+   `https://dehqon-bozori-backend.onrender.com`; boshqacha bo'lsa o'zgartiring.
+2. Bepul Expo akkaunti oching: <https://expo.dev/signup>
+3. Terminalda:
+
+   ```bash
+   cd mobile
+   npm install
+   npx eas-cli@latest login
+   npx eas-cli@latest init          # app.json ga projectId yoziladi — commit qiling
+   npm run build:apk                # ~15 daqiqa, bulutda
+   ```
+
+4. Tugagach EAS **havola** beradi — undan `.apk` ni yuklab Android telefonga
+   o'rnating (Sozlamalar → «Noma'lum manbalardan o'rnatish»ga ruxsat).
+5. Havolani Render'dagi `ANDROID_APP_URL` va Vercel'dagi
+   `NEXT_PUBLIC_ANDROID_APP_URL` ga qo'ying — bot va sayt «📱 Android
+   ilovani yuklab olish» tugmasini ko'rsatadi.
+
+> **Play Market uchun:** `npx eas-cli@latest build -p android --profile production`
+> (`.aab` fayl) va `npx eas-cli@latest submit -p android`. Google Play dasturchi
+> akkaunti bir martalik $25 turadi.
+
+### ✅ Tekshiring
+
+- [ ] Ilova ochiladi, sariq «Namuna e'lonlar» ogohlantirishi **yo'q**
+- [ ] Lentada saytdagi e'lonlar ko'rinadi
+- [ ] «Profil» → «Telegram orqali kirish» → botda Start → ilovaga qaytganda kirgan bo'lasiz
+- [ ] «Sotish» → kameradan rasm bilan e'lon → saytda va botda ko'rinadi
+- [ ] Rus tiliga o'tsangiz kategoriyalar ruscha chiqadi (botdagidek)
 
 ---
 
@@ -730,11 +783,19 @@ Deploy tugagach hammasi shu holatda bo'lishi kerak:
 - [ ] Sayt ochiq turganda yangi e'lon ~30 soniyada **o'zi** chiqadi
 - [ ] Saytda "Qo'ng'iroq" bosilganda Telegram'ga xabar keladi
 - [ ] Botda `/admin` → dehqon nomidan e'lon qo'shish ishlaydi
+- [ ] Botdagi «🌐 Saytni ochish» **Vercel** saytini ochadi (API JSON'ini emas)
+- [ ] Saytda ♡ bosib, Telegram orqali kirgandan keyin o'sha e'lon botdagi ⭐ ro'yxatida
+- [ ] E'lon sahifasida «Shikoyat qilish» → adminga Telegram xabari keladi
+
+**Mobil ilova**
+
+- [ ] APK o'rnatiladi va haqiqiy e'lonlarni ko'rsatadi
+- [ ] Ilovadan qo'shilgan e'lon saytda va botda ko'rinadi
 
 **Xavfsizlik**
 
 - [ ] GitHub repo'da `.env` fayli **yo'q**
-- [ ] Supabase Table Editor'da 6 ta jadval bor
+- [ ] Supabase Table Editor'da 7 ta jadval bor (`reports` bilan)
 - [ ] Namuna ma'lumotlari o'chirilgan (haqiqiy sotuvchilar kelgan bo'lsa)
 
 ---
@@ -748,6 +809,8 @@ Deploy tugagach hammasi shu holatda bo'lishi kerak:
 | `ADMIN_API_TOKEN` | Render Environment | git, frontend |
 | Supabase parol | parol menejeringiz | git |
 | `NEXT_PUBLIC_API_URL` | Vercel Environment | — (bu ochiq, muammo yo'q) |
+| `EXPO_PUBLIC_API_URL` | `mobile/eas.json` | — (bu ham ochiq: ilova ichiga yoziladi) |
+| Expo akkaunt paroli | parol menejeringiz | git |
 | `SUPABASE_SERVICE_ROLE_KEY` | **kerak emas** | hech qayerda |
 
 > Backend Supabase'ga Postgres protokoli orqali ulanadi, REST API orqali emas.

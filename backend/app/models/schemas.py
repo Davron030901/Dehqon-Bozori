@@ -7,6 +7,20 @@ from typing import Literal
 from pydantic import BaseModel, Field, field_validator
 
 
+def _own_upload(value: str | None) -> str | None:
+    """A client may only point a listing at a photo it uploaded through us.
+
+    An arbitrary URL would be hot-linked into every buyer's browser, and the
+    website's image optimiser refuses unknown hosts — the listing page would
+    crash instead of showing the picture.
+    """
+    if value in (None, ""):
+        return value
+    if not value.startswith("/media/uploads/") or ".." in value:
+        raise ValueError("photo_url must come from /api/my/upload")
+    return value
+
+
 # --------------------------------------------------------------------------- #
 #  Output
 # --------------------------------------------------------------------------- #
@@ -169,6 +183,11 @@ class ListingIn(BaseModel):
     def _clean(cls, v: str | None) -> str | None:
         return v.strip() if isinstance(v, str) else v
 
+    @field_validator("photo_url")
+    @classmethod
+    def _photo(cls, v: str | None) -> str | None:
+        return _own_upload(v)
+
 
 class ListingPatch(BaseModel):
     """Partial update. Every field is optional; only the ones sent change.
@@ -211,6 +230,11 @@ class ListingPatch(BaseModel):
     @classmethod
     def _clean(cls, v: str | None) -> str | None:
         return v.strip() if isinstance(v, str) else v
+
+    @field_validator("photo_url")
+    @classmethod
+    def _photo(cls, v: str | None) -> str | None:
+        return _own_upload(v)
 
 
 class ReportIn(BaseModel):

@@ -604,6 +604,14 @@ async def main() -> int:
         r = await c.patch(f"/api/my/listings/{edit_id}", headers=H,
                           json={"photo_url": photo_url})
         check("new web photo replaces the old one", r.json()["photo"] == photo_url)
+        for bad in ("https://evil.example/x.jpg", "/media/uploads/../../app.db"):
+            r = await c.patch(f"/api/my/listings/{edit_id}", headers=H, json={"photo_url": bad})
+            check(f"foreign photo_url rejected: {bad[:24]}", r.status_code == 422)
+        r = await c.post("/api/my/listings", headers=H, json={
+            "title": "Begona rasm", "category": "fruits", "price": 1000,
+            "region": "samarkand", "photo_url": "https://evil.example/x.jpg",
+        })
+        check("foreign photo_url rejected on create", r.status_code == 422)
 
         mine = (await c.get("/api/my/listings", headers=H)).json()
         pomidor = next(i for i in mine if i["id"] == listing_id)

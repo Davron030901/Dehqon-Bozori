@@ -1,189 +1,85 @@
-# Dehqon Bozori 🌿 — Holat hisoboti (2-nashr)
+# Dehqon Bozori 🌿 — Holat hisoboti (3-nashr)
 
-**Sana:** 2026-07-28
-**Xulosa:** Kod endi to'liq. Qolgani — sizning kompyuteringizda bajariladigan
-6 ta buyruq va faqat sizga ma'lum 2 ta qiymat.
+**Sana:** 2026-10-03
+**Xulosa:** Loyiha to'rt qismdan iborat va to'rttasi ham **ishga tushirilib,
+tekshirildi**: Telegram bot, API, sayt va yangi **mobil ilova** (Android/iOS).
+Avvalgi hisobotdagi «kod hech qachon kompilyatordan o'tmagan» degan
+ogohlantirish endi o'rinli emas.
 
 ---
 
-## ⚠️ Avvalgi hisobotimdagi xatolar
+## ✅ Tekshirilgan — ishga tushirib ko'rildi
 
-Birinchi tekshiruvimda qidiruv vositam ildizdagi bir nechta faylni
-o'tkazib yubordi va men noto'g'ri xulosa chiqardim. To'g'rilayman:
-
-| Men aytgan edim | Aslida |
+| Tekshiruv | Natija |
 |---|---|
-| «Frontend uchun umuman test yo'q» | **Noto'g'ri.** `tests/test_frontend.py` bor va u konfiguratsiya, data-layer qoidasi, Tailwind klasslari, PWA manifestini tekshiradi |
-| «`frontend/README.md` mavjud bo'lmagan verify script'ga havola qiladi» | **Noto'g'ri.** U `tests/test_frontend.py` ni nazarda tutgan — script boshqa joyda edi |
-| «Test qamrovi: faqat `test_platform.py`» | **Noto'g'ri.** `test_all.py` beshta to'plamni ishlatadi: backend · contract · bot · frontend · security |
-
-Ildizda `README.md`, `DEPLOY.md`, `test_all.py` va `tests/` papkasi bor edi —
-men ularni ko'rmadim. Loyiha men aytganidan ancha yaxshi holatda edi.
-
-**To'g'ri bo'lib chiqqan xulosalar:** `.venv` to'liq emas, `node_modules` yo'q,
-git yo'q, `BOT_USERNAME`/`ADMIN_IDS`/`ADMIN_API_TOKEN` bo'sh, ikkita frontend,
-botda `/admin` yo'q, token oshkor.
+| `python test_all.py` — 6 ta to'plam | backend 143 · contract 227 · bot 344 · frontend 152 · security 71 · mobile 47 — **hammasi o'tdi** |
+| `frontend: npm run check` | verify + TypeScript + ESLint + 65 vitest — o'tdi |
+| `frontend: npm run build` | Next.js production build — o'tdi (API bilan ham, demo rejimda ham) |
+| `mobile: npm run check` | verify + TypeScript + ESLint + 28 vitest — o'tdi |
+| `mobile: expo export --platform android` | Metro Android bundle (Hermes) — o'tdi |
+| `backend: docker build` | Image yig'ildi, konteyner ishga tushdi, `/health` 200, foydalanuvchi root emas |
+| Brauzerda haqiqiy oqimlar (Playwright) | Filtrlar → URL, «Yana ko'rsatish», ♡, shikoyat, sotuvchi sahifasi, rasm bilan e'lon qo'shish, tahrirlash, kabinet, admin shikoyatlar — sayt ham, ilova ham |
 
 ---
 
-## ✅ Bajarilgan ishlar
+## 🔴 Topilgan va tuzatilgan xatolar
 
-### 1. Konfiguratsiya blokerlari
+Bular kodni o'qish bilan emas, **ishga tushirib** topildi:
 
-- `backend/.env` qayta yozildi: `ADMIN_API_TOKEN` yaratildi, `CORS_ORIGINS`
-  localhost:3000 ga toraytirildi, har bir qator izohlandi
-- `config.py` ga **`check_config()`** qo'shildi — yarim sozlangan har bir
-  qiymat ishga tushishda ogohlantirish beradi. Ilgari bularning hammasi
-  **jimgina** buzilardi
-- `TODO_...` to'ldiruvchilari bo'sh qiymat sifatida o'qiladi, ya'ni
-  `ADMIN_IDS=TODO_...` konteynerni yiqitmaydi
-- `admin_id_list` endi noto'g'ri qiymatda `ValueError` bermaydi
-- `POST /api/auth/start` `BOT_USERNAME` bo'sh bo'lsa **503 va tushunarli xabar**
-  qaytaradi — ilgari bo'sh havola berardi va sabab hech qayerda ko'rinmasdi
-
-### 2. Botda `/admin` buyrug'i — yangi
-
-`backend/app/bot/handlers/admin.py` (~500 qator):
-
-- Telefon raqami bo'yicha sotuvchini topadi yoki yangisini ochadi, va
-  **darhol aytadi**: «✅ Topildi: Ali Rahimov (avvalgi e'lonlari: 3 ta)»
-- To'liq FSM oqimi: telefon → ism → kategoriya → nom → narx → birlik →
-  miqdor → hudud → tuman → rasm → tasdiqlash
-- «📋 Oxirgi e'lonlar» — har qanday sotuvchining e'lonini sotilgan deb
-  belgilash yoki o'chirish
-- «📊 Statistika»
-- Har bir kirish nuqtasi `ADMIN_IDS` ni **qayta** tekshiradi
-
-`/admin` va `/stats` Telegram menyusiga qo'shildi.
-
-### 3. Umumiy qatlamga ko'chirish
-
-`get_or_create_offline_seller()` va `normalize_phone()` `routes_admin.py` dan
-`app/db/queries.py` ga ko'chirildi. Endi **uchala yo'l** — bot `/admin`, sayt
-admin sahifasi, HTTP `POST /listings` — bir xil qoidani ishlatadi. Bitta
-dehqon ikki marta qo'shilmaydi.
-
-### 4. Next.js admin sahifasi — yangi
-
-`frontend/app/sotuvchi/admin/page.tsx` (~700 qator), uchta bo'lim:
-
-- **Statistika** — jami/faol/sotilgan, kategoriya · hudud · manba · aloqa
-  kanali bo'yicha diagrammalar, eng ko'p ko'rilgan e'lonlar
-- **E'lon qo'shish** — dehqon nomidan, telefon raqami identifikator sifatida
-- **Barcha e'lonlar** — qidiruv, holat filtri, o'chirish
-
-Admin ekanlik **backend'dan** aniqlanadi (`is_admin`), brauzerdan emas.
-
-`lib/api.ts` ga qo'shildi: `getSession`, `getAdminDashboard`,
-`getAdminListings`, `createAdminListing`, `deleteAdminListing`.
-
-### 5. Topilgan va tuzatilgan haqiqiy xato
-
-`ContactButtons.tsx` **to'g'ridan-to'g'ri `fetch()` chaqirardi** — bu
-loyihaning «faqat `lib/api.ts` tarmoqqa chiqadi» qoidasini buzardi. Endi
-`reportContact()` orqali ketadi.
-
-Bu xatoni men yozgan yangi verify script topdi.
-
-### 6. Eski frontend arxivlandi
-
-`backend/web/` endi xizmat qilmaydi (`SERVE_LEGACY_WEB=false`). Qaytarish
-uchun bitta o'zgaruvchi yetarli. `/` endi API haqida qisqa JSON qaytaradi,
-404 emas.
-
-### 7. Testlar
-
-- **Yangi:** `frontend/scripts/verify.mjs` — 6 ta arxitektura qoidasi,
-  hech qanday paketsiz ishlaydi. Kategoriya va hudud slug'larini
-  `backend/app/catalog.py` bilan solishtiradi
-- **Yangi:** `frontend/tests/` — Vitest, filtrlash/saralash/formatlash uchun
-  ~40 ta test
-- **Yangilandi:** `tests/test_bot.py` — 7 ta router, `AdminListing` FSM
-  oqimining har bir qadami, admin himoyasi
-- **Yangilandi:** `tests/test_frontend.py` — admin sahifasi majburiy fayllar
-  ro'yxatida
-- **Yangi:** `.github/workflows/ci.yml` — har push'da beshta Python to'plami
-  va frontend verify/types/lint/test/build
-
-### 8. Supabase
-
-- **Yangi:** `supabase/seed.sql` — 6 sotuvchi, 12 e'lon, bog'lanish
-  hodisalari. Qayta ishlatsa xavfsiz
-- **Yangi:** `supabase/migrations/0002_public_sellers_rls.sql`
-- **Tuzatildi:** `public_sellers` ko'rinishi RLS ni chetlab o'tardi —
-  Postgres'da oddiy VIEW egasi huquqi bilan ishlaydi. `security_invoker = true`
-  qo'shildi va `users` uchun aniq siyosat yozildi
-
-### 9. Hujjatlar
-
-`backend/README.md`, `frontend/README.md`, ildiz `README.md` — mavjud bo'lmagan
-`bot.py` ga havola, eskirgan test raqamlari, yo'q admin handler tuzatildi.
-Test jadvalidan qat'iy raqamlar olib tashlandi — ular birinchi o'zgarishda
-eskirardi.
+| Xato | Oqibati | Tuzatish |
+|---|---|---|
+| Sayt faqat birinchi 100 ta e'lonni yuklab, brauzerda filtrlardi | 101-e'lon hech qachon ko'rinmasdi | Filtrlash va sahifalash endi bazada; filtrlar URL'da |
+| Har bir tashrif e'lonni **2 marta** ko'rilgan deb sanardi | Sotuvchi statistikasi ikki baravar yolg'on | `react.cache` — bitta so'rov |
+| Bosh sahifani ochishning o'zi 24 ta e'longa «ko'rish» qo'shardi (Link prefetch) | «Ko'p ko'rilgan» saralash va sotuvchi raqamlari buzilgan; xaridorning 3G trafigi behuda | Prefetch o'chirildi + verify qoidasi |
+| Bosh sahifada React hydration xatosi | `localeCompare('uz')` Node va Chrome'da turlicha saralaydi | Qat'iy tartib + verify qoidasi |
+| Saytdan yuklangan rasmning Telegram nusxasi (`photo_file_id`) e'longa yozilmasdi | Render qayta ishga tushganda rasm yo'qolardi | Endi yoziladi |
+| Sayt faqat 5 kategoriya va faqat «kg» bilan ishlardi | Asal litrda, tuxum donada sotilmasdi; asal «Boshqa» bo'lib qolardi | Botdagi 11 kategoriya va 7 birlik |
+| «Qo'ng'iroq» tugmasini sikl bilan bosish sotuvchining Telegram'ini to'ldirib yuborardi | Spam vositasi | Bir xaridor/e'lon uchun 10 daqiqada 1 xabar; rate-limit |
+| Nomida `<` bo'lgan e'lon uchun Telegram xabari yetib bormasdi | Sotuvchi xaridordan bexabar | HTML escape |
+| Saytdan chiqish ilovadan ham chiqarib yuborardi | Barcha sessiyalar o'chirilardi | Faqat joriy qurilma |
+| Botdagi «Saytni ochish» API'ning JSON sahifasini ochardi | Sayt o'rniga texnik matn | `SITE_URL` sozlamasi |
+| Admin dehqon qo'shganda qishloq o'rniga tuman slug'i yozilardi («urgut») | Sotuvchi kartasida xom slug | Nomi yoziladi |
+| `POST /listings` sotuvchini o'z qoidasi bilan yaratardi | README'dagi «uchala yo'l bitta qoida» gapi yolg'on edi | Umumiy `get_or_create_offline_seller()` |
+| `90 123 45 67` → `+901234567` | Bir dehqon ikki marta yaratilishi mumkin edi | 9 raqamli raqamga `+998` qo'shiladi |
+| E'lon qo'shish sahifasi «qishloq»ni majburiy so'rardi, lekin serverga yubormasdi | Kiritilgan ma'lumot yo'qolardi | Maydon olib tashlandi |
+| 175-tuman — Qashqadaryodagi **Ko'kdala** yo'q edi (174 ta edi) | O'sha tuman dehqoni e'lon bera olmasdi | Qo'shildi |
+| Dockerfile `apt-get` ga bog'liq edi | Kerak bo'lmagan kompilyator va curl | Faqat wheel'lar, Python healthcheck |
+| Sotuvchi `photo_url` ga istalgan begona manzilni yoza olardi | Sayt rasm optimizatori noma'lum hostni rad etib, e'lon sahifasi yiqilardi | Faqat o'zimiz yuklagan `/media/uploads/...` qabul qilinadi |
+| Ikki test noto'g'ri edi (NBSP narx formati; arxivlangan sahifalar) | CI qizil edi | Haqiqiy xatti-harakatga moslandi |
+| README oxirida UTF-16 «axlat» (NUL baytlar) bor edi | GitHub'da buzuq ko'rinardi | Tozalandi |
 
 ---
 
-## 🔴 Sizdan kutilayotgan ishlar
+## 🆕 Qo'shilgan imkoniyatlar
 
-Men buyruq ishga tushira olmayman (sandbox ishlamadi), shuning uchun bular
-sizda qoladi.
+**API (sayt va ilova uchun umumiy):** sevimlilar (botdagi ⭐ bilan bitta
+jadval), e'lonni to'liq tahrirlash, sotuvchining ochiq sahifasi, filtr
+hisoblagichlari (`/api/facets`), o'xshash e'lonlar, xaridor shikoyatlari va
+admin navbati, sotuvchiga «nechta xaridor bog'landi» soni, `/api/meta` da
+tumanlar.
 
-### Ikkita qiymat — faqat siz bilasiz
+**Sayt:** URL'dagi filtrlar, «Yana ko'rsatish», saqlanganlar sahifasi,
+tahrirlash, sotuvchi sahifasi, ulashish, shikoyat, kabinetda chiqish va
+profil, admin shikoyatlar bo'limi, `sitemap.xml` va `robots.txt`.
 
-`backend/.env` ichida:
+**Mobil ilova (`mobile/`):** to'liq yangi — [mobile/README.md](mobile/README.md).
+O'zbek va rus tillari, Telegram orqali kirish, kameradan rasm bilan e'lon,
+kabinet, admin panel, APK yig'ish profili.
 
-```
-BOT_USERNAME=TODO_BOT_USERNAME_QOYING     ← @BotFather, @ belgisisiz
-ADMIN_IDS=TODO_TELEGRAM_ID_QOYING         ← @userinfobot beradi
-```
-
-### Olti buyruq
-
-```bash
-# 1 — git
-cd "C:\Users\user\Desktop\Dehqon Bozori"
-git init && git add . && git commit -m "Dehqon Bozori MVP"
-
-# 2 — backend paketlari (fastapi, uvicorn, httpx, python-multipart yetishmaydi)
-cd backend
-python -m venv .venv
-.venv\Scripts\activate
-pip install -r requirements.txt
-
-# 3 — frontend paketlari
-cd ../frontend
-npm install
-
-# 4 — hamma testlar
-cd ..
-python test_all.py
-
-# 5 — frontend tekshiruvi
-cd frontend && npm run check
-
-# 6 — build (Vercel darvozasi)
-npm run build
-```
-
-### Token
-
-@BotFather → `/revoke` → yangi token → `backend/.env` ga qo'ying.
-Eski token oshkor bo'lgan.
+**Bot:** sayt/ilova havolalari, Android ilova tugmasi, ko'rish va bog'lanishlar
+endi botda ham sanaladi.
 
 ---
 
-## ⚠️ Ogohlantirish
+## ⚠️ Ochiq qolgan masalalar
 
-Sandbox ishlamagani uchun **men yozgan kod hech qachon kompilyatordan
-o'tmagan.** Mantiq va importlarni qo'lda bir necha marta tekshirdim, lekin
-`npm run typecheck` va `python test_all.py` birinchi marta ishlaganda kichik
-xatolar chiqishi mumkin. Chiqsa — menga ko'rsating, darhol tuzataman.
-
-Ayniqsa e'tibor bering:
-
-- `tests/test_bot.py` endi 7 ta router kutadi
-- `frontend/tests/*.test.ts` — Vitest birinchi marta ishlayapti
-- `supabase/seed.sql` — Postgres sintaksisi lokal SQLite'da sinalmaydi
+- **Push-bildirishnomalar** ilovada yo'q — ataylab: sotuvchi xabarni Telegram'da
+  oladi. Kerak bo'lsa, keyingi bosqich.
+- **iOS** uchun kod tayyor, lekin App Store'ga chiqarish Apple Developer
+  akkaunti ($99/yil) va `eas build -p ios` ni talab qiladi.
+- Ilova faqat brauzer (react-native-web) va Metro bundle orqali tekshirildi;
+  **haqiqiy telefonda** kamera va Telegram'ga o'tishni bir marta sinab ko'ring
+  (`NAVBATDAGI-ISH.md` dagi ro'yxat).
 
 ---
 
