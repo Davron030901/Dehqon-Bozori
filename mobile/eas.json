@@ -1,0 +1,37 @@
+{
+  "cli": {
+    "version": ">= 16.0.0",
+    "appVersionSource": "remote"
+  },
+  "build": {
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal"
+    },
+    "preview": {
+      "distribution": "internal",
+      "android": {
+        "buildType": "apk"
+      },
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://dehqon-bozori-backend.onrender.com",
+        "EXPO_PUBLIC_SITE_URL": "https://dehqon-bozori.vercel.app",
+        "EXPO_PUBLIC_BOT_USERNAME": "DehqonBozoriBot"
+      }
+    },
+    "production": {
+      "autoIncrement": true,
+      "android": {
+        "buildType": "app-bundle"
+      },
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://dehqon-bozori-backend.onrender.com",
+        "EXPO_PUBLIC_SITE_URL": "https://dehqon-bozori.vercel.app",
+        "EXPO_PUBLIC_BOT_USERNAME": "DehqonBozoriBot"
+      }
+    }
+  },
+  "submit": {
+    "production": {}
+  }
+}

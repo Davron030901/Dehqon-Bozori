@@ -4,6 +4,8 @@
  *
  *   node scripts/gen-districts.mjs           # write the file
  *   node scripts/gen-districts.mjs --check   # fail if it is out of date
+ *   node scripts/gen-districts.mjs --out ../mobile/src/lib/districts.ts
+ *                                            # same file for the mobile app
  *
  * 175 districts kept in two places by hand would be two lists within a month.
  * The Python file is the source of truth — it is what the bot and the database
@@ -16,13 +18,20 @@
  */
 
 import { readFileSync, writeFileSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const FRONTEND = resolve(HERE, '..');
 const SOURCE = join(FRONTEND, '..', 'backend', 'app', 'districts.py');
-const TARGET = join(FRONTEND, 'lib', 'districts.ts');
+// `--out <path>` (relative to the current directory) lets the mobile app
+// generate its own copy from the same source, with the same code.
+const outIndex = process.argv.indexOf('--out');
+const TARGET =
+  outIndex !== -1 && process.argv[outIndex + 1]
+    ? resolve(process.cwd(), process.argv[outIndex + 1])
+    : join(FRONTEND, 'lib', 'districts.ts');
+const TARGET_NAME = relative(process.cwd(), TARGET) || TARGET;
 
 const checkOnly = process.argv.includes('--check');
 
@@ -182,12 +191,12 @@ if (checkOnly) {
   try {
     existing = readFileSync(TARGET, 'utf8');
   } catch {
-    console.error('gen-districts: lib/districts.ts is missing — run `npm run gen:districts`');
+    console.error(`gen-districts: ${TARGET_NAME} is missing — run \`npm run gen:districts\``);
     process.exit(1);
   }
   if (existing !== output) {
     console.error(
-      'gen-districts: lib/districts.ts is out of date with backend/app/districts.py.\n' +
+      `gen-districts: ${TARGET_NAME} is out of date with backend/app/districts.py.\n` +
         '               Run `npm run gen:districts` and commit the result.',
     );
     process.exit(1);
@@ -196,6 +205,6 @@ if (checkOnly) {
 } else {
   writeFileSync(TARGET, output, 'utf8');
   console.log(
-    `gen-districts: wrote lib/districts.ts — ${regionKeys.length} regions, ${total} districts`,
+    `gen-districts: wrote ${TARGET_NAME} — ${regionKeys.length} regions, ${total} districts`,
   );
 }

@@ -1,7 +1,7 @@
 name: CI
 
-# Two jobs, because the two halves fail for different reasons and a broken
-# stylesheet should not hide a broken query.
+# Three jobs, because the parts fail for different reasons and a broken
+# stylesheet should not hide a broken query — or a broken phone screen.
 on:
   push:
     branches: [main, master]
@@ -10,7 +10,7 @@ on:
 
 jobs:
   python:
-    name: Python — all five suites
+    name: Python — all six suites
     runs-on: ubuntu-latest
 
     steps:
@@ -38,7 +38,7 @@ jobs:
         run: python -c "import app.main, app.api.app, app.bot.handlers; print('imports ok')"
 
       - name: All suites
-        # backend · contract · bot · frontend · security
+        # backend · contract · bot · frontend · security · mobile
         # Throwaway SQLite databases; no real secrets anywhere.
         env:
           BOT_TOKEN: '0:test'
@@ -85,3 +85,44 @@ jobs:
         # The real Vercel gate. Without NEXT_PUBLIC_API_URL the site builds
         # against demo data, which is what a preview deploy does.
         run: npm run build
+
+  mobile:
+    name: Mobile — verify, types, lint, test, Android bundle
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mobile
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          # React Native 0.86 needs Node 20.19+ / 22.13+.
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Architecture rules
+        # Reads backend/app/catalog.py and districts.py, so the app's
+        # categories, labels (uz + ru) and districts cannot drift from the bot's.
+        run: npm run verify
+
+      - name: Types
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Unit tests
+        run: npm run test
+
+      - name: Android bundle
+        # The real compile: Metro resolves every screen and import and emits
+        # Hermes bytecode. An empty API URL builds the demo-data variant.
+        env:
+          CI: '1'
+        run: npx expo export --platform android --output-dir dist

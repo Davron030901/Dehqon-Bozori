@@ -3,7 +3,7 @@
 
     python test_all.py              # everything
     python test_all.py backend      # one suite: backend | contract | bot |
-                                    #            frontend | security
+                                    #            frontend | security | mobile
 
 Suites
 ------
@@ -15,9 +15,12 @@ bot       routers, FSM states, and that every string exists in Uzbek AND Russian
 frontend  config validity, the data-layer rule, Tailwind classes, PWA manifest
 security  committed secrets, auth on write endpoints, path traversal, Docker,
           Supabase RLS
+mobile    the Expo app: build config, APK profile, catalogue and i18n parity,
+          one network module, token in the secure store
 
 What this does NOT cover — run these yourself before shipping:
   * `cd frontend && npm run build`  — the real Vercel gate
+  * `cd mobile && npm run check && npx expo export -p android` — the app gate
   * `cd backend && docker build .`  — the real Render gate
   * a live Telegram conversation with the bot
 """
@@ -47,6 +50,8 @@ SUITES = [
      "config, data-layer rule, Tailwind, PWA"),
     ("security", TESTS / "test_security.py", ROOT,
      "secrets, authz, traversal, Docker, RLS"),
+    ("mobile",   TESTS / "test_mobile.py", ROOT,
+     "Expo config, APK profile, catalogue, app rules"),
 ]
 
 
@@ -111,7 +116,8 @@ def main() -> int:
 
     if total_ok:
         print(f"{GREEN}{BOLD}  All suites passed.{RESET}")
-        print(f"{DIM}  Still to run manually: `npm run build` in frontend/, "
+        print(f"{DIM}  Still to run (CI does): `npm run check && npm run build` in "
+              f"frontend/, `npm run check && npm run bundle` in mobile/, "
               f"`docker build .` in backend/.{RESET}")
     else:
         print(f"{RED}{BOLD}  Some suites failed — see above.{RESET}")

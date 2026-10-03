@@ -311,6 +311,46 @@ async def main() -> int:
             )
             check(f"frontend calls an endpoint that exists: {endpoint}", match)
 
+        # ------------------------------------------------ the mobile app ---
+        # mobile/src/lib/api.ts is a second, independent client of the same
+        # API. Same contract, same checks — a field renamed on the backend must
+        # fail here for the phone app too, not only for the website.
+        mobile_ts_path = ROOT / "mobile" / "src" / "lib" / "api.ts"
+        if mobile_ts_path.is_file():
+            mobile_ts = mobile_ts_path.read_text(encoding="utf-8")
+            mobile_listing = parse_ts_interface(mobile_ts, "ApiListing")
+            mobile_seller = parse_ts_interface(mobile_ts, "ApiSeller")
+            for listing in page["items"]:
+                label = listing.get("title", "?")
+                for field, spec in mobile_listing.items():
+                    if field not in listing:
+                        check(f"[mobile][{label}] ApiListing.{field} present", spec["optional"])
+                        continue
+                    check(f"[mobile][{label}] ApiListing.{field} type",
+                          type_ok(listing[field], spec),
+                          f"got {type(listing[field]).__name__}={listing[field]!r}")
+            for field, spec in mobile_seller.items():
+                check(f"[mobile] ApiSeller.{field} present",
+                      field in detailed["seller"] or spec["optional"])
+
+            mobile_called = set(re.findall(r"request<[^>]*>\(\s*[`'\"]([^`'\"?]+)", mobile_ts))
+            check("mobile app calls a non-trivial set of endpoints", len(mobile_called) > 15,
+                  str(len(mobile_called)))
+            for endpoint in sorted(mobile_called):
+                pattern = re.sub(r"\$\{[^}]+\}", "{p}", endpoint).rstrip("/")
+                match = any(
+                    re.fullmatch(re.sub(r"\{[^}]+\}", "[^/]+", r), pattern)
+                    for r in routes
+                )
+                check(f"[mobile] calls an endpoint that exists: {endpoint}", match)
+
+            # The Russian labels the app shows must be the ones the API sends.
+            ru = (await c.get("/api/listings?lang=ru")).json()["items"][0]
+            check("API serves Russian labels for the app (lang=ru)",
+                  ru["region_label"] != ru["region"] and ru["unit_label"])
+        else:
+            note("mobile/src/lib/api.ts not found — mobile contract skipped")
+
         # ------------------------------------ photo URL is actually usable ---
         photo_listing = page["items"][0]
         if photo_listing.get("photo"):
