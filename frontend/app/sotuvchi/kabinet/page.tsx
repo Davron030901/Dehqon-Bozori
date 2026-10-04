@@ -16,6 +16,7 @@ import {
   setListingSold,
   type SessionInfo,
 } from '@/lib/api';
+import { resetFavorites } from '@/lib/favorites';
 import { formatDate, formatPrice } from '@/lib/format';
 import {
   clearToken,
@@ -121,6 +122,7 @@ export default function SellerCabinetPage() {
     const token = getToken();
     if (token) await logout(token);
     clearToken();
+    resetFavorites();
     setSession(null);
     await load();
   }

@@ -5,6 +5,11 @@ import { useEffect, useRef, useState } from 'react';
 
 import { strings } from '@/lib/strings';
 
+/** What the URL keeps of a query (see filtersFromSearch): trimmed, at most 80 characters. */
+function normalise(query: string): string {
+  return query.trim().slice(0, 80);
+}
+
 export default function SearchBar({
   value,
   onChange,
@@ -16,7 +21,9 @@ export default function SearchBar({
   // What this box last sent upward. The search runs on the server now, so
   // `value` comes back a moment later — while the buyer may already have typed
   // more. Only a value that did NOT come from here (a reset, the back button)
-  // may overwrite what is in the box.
+  // may overwrite what is in the box. Stored the way the URL will hand it back
+  // ("qizil " returns as "qizil"), or the echo would look like an outside change
+  // and wipe the space the buyer just typed.
   const lastSent = useRef(value);
 
   useEffect(() => {
@@ -27,14 +34,14 @@ export default function SearchBar({
   }, [value]);
 
   function send(next: string) {
-    lastSent.current = next;
+    lastSent.current = normalise(next);
     onChange(next);
   }
 
   // Debounce so a slow connection is not asked for a page on every keystroke.
   useEffect(() => {
     const timer = setTimeout(() => {
-      if (draft !== lastSent.current) send(draft);
+      if (normalise(draft) !== lastSent.current) send(draft);
     }, 400);
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps

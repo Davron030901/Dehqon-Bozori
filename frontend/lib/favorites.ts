@@ -17,7 +17,13 @@
 import { useEffect, useState } from 'react';
 
 import { addFavorite, getFavoriteIds, removeFavorite, syncFavorites } from './api';
-import { getLocalFavorites, getToken, setLocalFavorites } from './session';
+import {
+  getLocalFavorites,
+  getToken,
+  isFavoritesMergePending,
+  setFavoritesMergePending,
+  setLocalFavorites,
+} from './session';
 
 type Listener = (ids: string[]) => void;
 
@@ -39,6 +45,10 @@ function publish(next: string[]): void {
 /**
  * Signed in: the account is the truth, so a heart removed on the phone does not
  * come back from this browser's stale copy. Read it once per page load.
+ *
+ * Unless the merge after sign-in never reached the server: then the device
+ * still holds hearts the account has not seen, and replacing them with the
+ * account's list would lose them. Retry the merge (a union) instead.
  */
 async function syncOnce(): Promise<void> {
   if (synced) return;
@@ -46,9 +56,15 @@ async function syncOnce(): Promise<void> {
   const token = getToken();
   if (!token) return;
   try {
-    publish(await getFavoriteIds(token));
+    if (isFavoritesMergePending()) {
+      publish(await syncFavorites(token, current()));
+      setFavoritesMergePending(false);
+    } else {
+      publish(await getFavoriteIds(token));
+    }
   } catch {
-    /* offline or token expired — the local list still works */
+    // offline or token expired — the local list still works; try next page
+    synced = false;
   }
 }
 
@@ -81,12 +97,25 @@ export async function toggleFavorite(id: string): Promise<boolean> {
 export async function mergeFavoritesAfterLogin(): Promise<void> {
   const token = getToken();
   if (!token) return;
+  setFavoritesMergePending(true);
   try {
     publish(await syncFavorites(token, current()));
+    setFavoritesMergePending(false);
     synced = true;
   } catch {
     synced = false;
   }
+}
+
+/**
+ * Signed out: the device list is a mirror of that account now, so it goes.
+ * Otherwise the next person to sign in on this browser — a shared family
+ * phone — would have the previous seller's hearts merged into their account.
+ */
+export function resetFavorites(): void {
+  synced = false;
+  setFavoritesMergePending(false);
+  publish([]);
 }
 
 export function useFavorites(): string[] {

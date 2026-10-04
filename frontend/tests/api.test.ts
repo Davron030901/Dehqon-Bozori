@@ -9,7 +9,6 @@ import {
   isListedToday,
   listingInputToApi,
   paginate,
-  quantityNumber,
 } from '@/lib/api';
 import type { Listing } from '@/lib/types';
 
@@ -204,6 +203,15 @@ describe('isListedToday', () => {
     expect(isListedToday('2020-01-01T00:00:00.000Z')).toBe(false);
   });
 
+  it('counts the day in Tashkent time, whatever clock runs the code', () => {
+    // 02:00 in Tashkent on 3 Oct = 21:00 UTC on 2 Oct.
+    const now = new Date('2026-10-02T21:00:00Z');
+    // 18:00 Tashkent on 2 Oct — yesterday there, although "today" in UTC.
+    expect(isListedToday('2026-10-02T13:00:00Z', now)).toBe(false);
+    // 00:30 Tashkent on 3 Oct — today there, although "yesterday" in UTC.
+    expect(isListedToday('2026-10-02T19:30:00Z', now)).toBe(true);
+  });
+
   it('is false rather than throwing on junk input', () => {
     expect(isListedToday('')).toBe(false);
     expect(isListedToday('kecha')).toBe(false);
@@ -296,20 +304,6 @@ describe('paginate', () => {
   });
 });
 
-describe('quantityNumber', () => {
-  it('pulls the number out of free text', () => {
-    expect(quantityNumber('500 kg')).toBe(500);
-    expect(quantityNumber('1,5 tonna')).toBe(1.5);
-    expect(quantityNumber('40 litr')).toBe(40);
-  });
-
-  it('returns undefined when there is no usable number', () => {
-    expect(quantityNumber(null)).toBeUndefined();
-    expect(quantityNumber('ko‘p')).toBeUndefined();
-    expect(quantityNumber('0 kg')).toBeUndefined();
-  });
-});
-
 describe('listingInputToApi', () => {
   it('writes the quantity with its unit, as the bot does', () => {
     const body = listingInputToApi({
@@ -317,7 +311,7 @@ describe('listingInputToApi', () => {
       category: 'honey',
       price: 90000,
       unit: 'liter',
-      quantity: 40,
+      quantity: '40',
       region: 'jizzakh',
       district: 'zomin',
       telegramUsername: '@asalchi',
@@ -330,6 +324,15 @@ describe('listingInputToApi', () => {
       district: 'zomin',
       telegram_username: 'asalchi',
     });
+  });
+
+  it('keeps a free-text quantity exactly as the seller wrote it', () => {
+    // An edit used to turn "3 tonna" into "3 kg" and erase "ko‘p".
+    for (const raw of ['3 tonna', '500-600 kg', 'ko‘p', '2 mashina']) {
+      expect(listingInputToApi({ unit: 'kg', quantity: raw }).quantity).toBe(raw);
+    }
+    expect(listingInputToApi({ unit: 'kg', quantity: '  ' }).quantity).toBeNull();
+    expect('quantity' in listingInputToApi({ price: 9000, unit: 'kg' })).toBe(false);
   });
 
   it('sends null to clear an optional field, and omits what was not given', () => {

@@ -12,6 +12,7 @@
 
 'use client';
 
+import { quantityText } from './format';
 import { unitLabels } from './strings';
 import type { Listing, NewListingInput, SellerRegistrationInput } from './types';
 
@@ -19,6 +20,7 @@ const TOKEN_KEY = 'db_token';
 const PROFILE_KEY = 'db_profile_draft';
 const LISTINGS_KEY = 'db_listing_drafts';
 const FAVORITES_KEY = 'db_favorites';
+const FAVORITES_MERGE_KEY = 'db_favorites_merge_pending';
 
 function read<T>(key: string): T | null {
   if (typeof window === 'undefined') return null;
@@ -87,7 +89,7 @@ export function saveListingDraft(input: NewListingInput): Listing {
     price: input.price,
     unit: input.unit,
     unitLabel,
-    quantity: input.quantity ? `${input.quantity} ${unitLabel}` : undefined,
+    quantity: quantityText(input.quantity, unitLabel) ?? undefined,
     village: '',
     district: input.district,
     region: input.region,
@@ -134,4 +136,24 @@ export function getLocalFavorites(): string[] {
 
 export function setLocalFavorites(ids: string[]): void {
   write(FAVORITES_KEY, Array.from(new Set(ids)).slice(0, 200));
+}
+
+/**
+ * Set while the device's hearts still have to be merged into the account — the
+ * merge right after sign-in can fail on 3G, and the next page must retry it
+ * instead of replacing the device list with the account's.
+ */
+export function isFavoritesMergePending(): boolean {
+  return read<boolean>(FAVORITES_MERGE_KEY) === true;
+}
+
+export function setFavoritesMergePending(pending: boolean): void {
+  if (pending) write(FAVORITES_MERGE_KEY, true);
+  else if (typeof window !== 'undefined') {
+    try {
+      window.localStorage.removeItem(FAVORITES_MERGE_KEY);
+    } catch {
+      /* private mode — nothing was stored either */
+    }
+  }
 }

@@ -10,6 +10,7 @@
  * so the UI can say so honestly instead of pretending the fake produce is real.
  */
 
+import { quantityText } from './format';
 import { getMockListingById, mockListings } from './mockData';
 import { categoryLabels, unitLabels } from './strings';
 import type {
@@ -135,14 +136,6 @@ function isCategory(key: string): key is CategoryKey {
 
 function isUnit(key: string): key is UnitKey {
   return Object.prototype.hasOwnProperty.call(unitLabels, key);
-}
-
-/** "500 kg" / "40 litr" / "1,5 tonna" / null -> 500 / 40 / 1.5 / undefined */
-export function quantityNumber(raw: string | null | undefined): number | undefined {
-  if (!raw) return undefined;
-  const match = raw.replace(/\s/g, '').replace(',', '.').match(/\d+(\.\d+)?/);
-  const value = match ? Number.parseFloat(match[0]) : NaN;
-  return Number.isFinite(value) && value > 0 ? value : undefined;
 }
 
 /** Backend photo paths are relative ("/media/…"); make them absolute. */
@@ -558,24 +551,30 @@ export async function getSitemapListings(max = 1000): Promise<{ id: string; crea
 export interface LoginStart {
   code: string;
   deepLink: string;
+  /** The number the bot asks the seller to pick — proves the request is theirs. */
+  matchCode: string;
 }
 
 export async function startTelegramLogin(): Promise<LoginStart> {
-  const res = await request<{ code: string; deep_link: string }>('/api/auth/start', {
-    method: 'POST',
-  });
-  return { code: res.code, deepLink: res.deep_link };
+  const res = await request<{ code: string; deep_link: string; match_code: string }>(
+    '/api/auth/start',
+    { method: 'POST' },
+  );
+  return { code: res.code, deepLink: res.deep_link, matchCode: res.match_code };
 }
 
+/** `refused` — the seller tapped a wrong number or «Bu men emas» in the bot. */
+export type LoginStatus = 'pending' | 'ok' | 'expired' | 'refused';
+
 export interface LoginPoll {
-  status: 'pending' | 'ok' | 'expired';
+  status: LoginStatus;
   token?: string;
   seller?: Seller;
 }
 
 export async function pollTelegramLogin(code: string): Promise<LoginPoll> {
   const res = await request<{
-    status: 'pending' | 'ok' | 'expired';
+    status: LoginStatus;
     token: string | null;
     user: ApiSeller | null;
   }>(`/api/auth/poll?code=${encodeURIComponent(code)}`);
@@ -709,9 +708,7 @@ export function listingInputToApi(input: Partial<NewListingInput>): Record<strin
   if (input.category !== undefined) body.category = input.category;
   if (input.price !== undefined) body.price = input.price;
   if (input.unit !== undefined) body.unit = input.unit;
-  if ('quantity' in input) {
-    body.quantity = input.quantity ? `${input.quantity} ${unitLabel}`.trim() : null;
-  }
+  if ('quantity' in input) body.quantity = quantityText(input.quantity, unitLabel);
   if (input.region !== undefined) body.region = input.region;
   if ('district' in input) body.district = input.district || null;
   if ('description' in input) body.description = input.description?.trim() || null;
@@ -945,16 +942,24 @@ export async function resolveReport(token: string, id: number): Promise<void> {
 // --------------------------------------------------------------------------- //
 //  Client-side search / filter / sort — demo data, and the tests' reference
 // --------------------------------------------------------------------------- //
-export function isListedToday(iso: string): boolean {
+/** Uzbekistan is UTC+5 all year — no daylight saving to account for. */
+const TASHKENT_OFFSET_MS = 5 * 60 * 60 * 1000;
+
+function tashkentDay(date: Date): string {
+  return new Date(date.getTime() + TASHKENT_OFFSET_MS).toISOString().slice(0, 10);
+}
+
+/**
+ * "Bugun" — posted today, Tashkent time, the same rule as the backend's
+ * `is_new_today`. Not the clock of whoever runs this: Vercel renders in UTC and
+ * the buyer's browser is in Tashkent, so between 00:00 and 05:00 the two used
+ * to disagree — a hydration error, and a badge the app did not show.
+ */
+export function isListedToday(iso: string, now: Date = new Date()): boolean {
   if (!iso) return false;
   const created = new Date(iso);
   if (Number.isNaN(created.getTime())) return false;
-  const now = new Date();
-  return (
-    created.getFullYear() === now.getFullYear() &&
-    created.getMonth() === now.getMonth() &&
-    created.getDate() === now.getDate()
-  );
+  return tashkentDay(created) === tashkentDay(now);
 }
 
 /**

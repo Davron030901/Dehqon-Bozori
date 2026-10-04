@@ -27,14 +27,23 @@ export function formatDate(iso: string | undefined): string {
   return `${date.getDate()}-${MONTHS_UZ[date.getMonth()]}, ${date.getFullYear()}`;
 }
 
+/**
+ * Digits with the country code. A 9-digit number is an Uzbek mobile written
+ * the way people say it ("90 123 45 67") and gets 998 — the backend's
+ * normalize_phone rule. Without it the link dialled +90…, which is Turkey.
+ */
+function internationalDigits(phone: string): string {
+  const digits = phone.replace(/[^\d]/g, '');
+  return digits.length === 9 ? `998${digits}` : digits;
+}
+
 /** Turns any phone shape into a tel: href. */
 export function telHref(phone: string): string {
-  const digits = phone.replace(/[^\d]/g, '');
-  return `tel:+${digits}`;
+  return `tel:+${internationalDigits(phone)}`;
 }
 
 export function whatsappHref(number: string): string {
-  return `https://wa.me/${number.replace(/[^\d]/g, '')}`;
+  return `https://wa.me/${internationalDigits(number)}`;
 }
 
 export function telegramHref(username: string): string {
@@ -45,4 +54,30 @@ export function telegramHref(username: string): string {
 export function isValidPhone(phone: string): boolean {
   const digits = phone.replace(/[^\d]/g, '');
   return digits.length >= 9 && digits.length <= 15;
+}
+
+/**
+ * What a seller types as a price -> so'm, the way the bot reads it.
+ *
+ * "8000", "8 000", "8'000", "8,000" and "8.000" are all eight thousand — in
+ * Uzbekistan every one of those is how somebody writes it. Only a single
+ * separator followed by one or two digits is a decimal ("8,5"), so a price
+ * saved with kopecks survives an edit. Anything else -> NaN.
+ */
+export function parsePrice(raw: string): number {
+  const compact = raw.replace(/[\s  '’‘`]/g, '');
+  if (/^\d+[.,]\d{1,2}$/.test(compact)) return Number(compact.replace(',', '.'));
+  const whole = compact.replace(/[.,]/g, '');
+  return /^\d+$/.test(whole) ? Number(whole) : Number.NaN;
+}
+
+/**
+ * The quantity as it is stored: free text, as in the bot ("3 tonna",
+ * "500-600 kg", "ko'p"). A bare number gets the unit so it still reads
+ * "500 kg" on a card; anything else is kept exactly as written.
+ */
+export function quantityText(raw: string | undefined | null, unitLabel: string): string | null {
+  const text = (raw ?? '').trim().replace(/\s+/g, ' ');
+  if (!text) return null;
+  return /^\d+([.,]\d+)?$/.test(text) ? `${text} ${unitLabel}`.trim() : text;
 }

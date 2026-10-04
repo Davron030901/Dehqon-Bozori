@@ -4,7 +4,7 @@ import { ImagePlus, X } from 'lucide-react';
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 
 import { districtsOf, isValidDistrict } from '@/lib/districts';
-import { isValidPhone } from '@/lib/format';
+import { isValidPhone, parsePrice } from '@/lib/format';
 import {
   categoryLabels,
   categoryOrder,
@@ -84,7 +84,12 @@ export default function ListingForm({
   error?: string | null;
   onSubmit: (values: ListingFormResult, photo: File | null) => Promise<void>;
 }) {
-  const [form, setForm] = useState<ListingFormValues>({ ...EMPTY_LISTING_FORM, ...initial });
+  // Missing profile data arrives as `undefined`; spreading that over the
+  // defaults would leave a field without a string and break `.trim()` on submit.
+  const [form, setForm] = useState<ListingFormValues>(() => ({
+    ...EMPTY_LISTING_FORM,
+    ...definedValues(initial),
+  }));
   const [errors, setErrors] = useState<Errors>({});
   const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
@@ -149,14 +154,9 @@ export default function ListingForm({
     const next: Errors = {};
     if (form.productName.trim().length < 2) next.productName = strings.form.minLength(2);
 
-    const price = Number.parseFloat(form.price);
+    const price = parsePrice(form.price);
     if (!form.price.trim()) next.price = strings.form.required;
     else if (!Number.isFinite(price) || price <= 0) next.price = strings.form.invalidPrice;
-
-    if (form.quantity.trim()) {
-      const quantity = Number.parseFloat(form.quantity);
-      if (!Number.isFinite(quantity) || quantity < 0) next.quantity = strings.form.invalidPrice;
-    }
 
     if (mode !== 'admin' && !form.district) next.district = strings.form.required;
     // A district left over from a previously chosen region would be rejected
@@ -191,15 +191,14 @@ export default function ListingForm({
       return;
     }
     setSubmitting(true);
-    const quantity = Number.parseFloat(form.quantity);
     try {
       await onSubmit(
         {
           productName: form.productName.trim(),
           category: form.category,
-          price: Number.parseFloat(form.price),
+          price: parsePrice(form.price),
           unit: form.unit,
-          quantity: Number.isFinite(quantity) && quantity > 0 ? quantity : undefined,
+          quantity: form.quantity.trim() || undefined,
           region: form.region,
           district: form.district,
           harvestDate: form.harvestDate || undefined,
@@ -338,11 +337,12 @@ export default function ListingForm({
 
       <div className="grid gap-4 sm:grid-cols-[1fr_10rem]">
         <Field label={strings.addListing.pricePer(unit)} error={errors.price} required>
+          {/* Text, not type=number: "8 000" is how people write a price, and a
+              number input silently turns it into an empty value. */}
           <input
-            type="number"
+            type="text"
             inputMode="numeric"
-            min={1}
-            step="any"
+            autoComplete="off"
             value={form.price}
             onChange={(e) => update('price', e.target.value)}
             placeholder="8000"
@@ -367,14 +367,13 @@ export default function ListingForm({
 
       <div className="grid gap-4 sm:grid-cols-2">
         <Field label={`${strings.addListing.quantity} (${unit})`} error={errors.quantity}>
+          {/* Free text, like the bot: "3 tonna" and "500-600" are real answers. */}
           <input
-            type="number"
-            inputMode="decimal"
-            min={0}
-            step="any"
+            type="text"
             value={form.quantity}
             onChange={(e) => update('quantity', e.target.value)}
-            placeholder="500"
+            placeholder={strings.addListing.quantityPlaceholder}
+            maxLength={50}
             className="field-input"
           />
         </Field>
@@ -496,6 +495,13 @@ export default function ListingForm({
       </button>
     </form>
   );
+}
+
+/** Drop keys whose value is missing, so they keep the form's '' default. */
+function definedValues(values: Partial<ListingFormValues> | undefined): Partial<ListingFormValues> {
+  return Object.fromEntries(
+    Object.entries(values ?? {}).filter(([, value]) => value !== undefined && value !== null),
+  ) as Partial<ListingFormValues>;
 }
 
 function Field({

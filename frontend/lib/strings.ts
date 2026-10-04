@@ -34,6 +34,7 @@ export const strings = {
     resultsCount: (n: number) => `${n} ta e’lon topildi`,
     loadMore: 'Yana ko’rsatish',
     loadingMore: 'Yuklanmoqda…',
+    loadMoreFailed: 'Yuklab bo’lmadi. Internetni tekshirib, yana bosing.',
     sellCtaTitle: 'Hosilingiz bormi? O’zingiz soting.',
     sellCtaBody: 'Bir daqiqada e’lon joylang — xaridor sizga to’g’ridan-to’g’ri qo’ng’iroq qiladi.',
     appCta: 'Android ilovani yuklab olish',
@@ -180,6 +181,7 @@ export const strings = {
     unit: 'Nima uchun',
     pricePer: (unit: string) => `1 ${unit} uchun narx`,
     quantity: 'Mavjud miqdor',
+    quantityPlaceholder: '500 yoki «3 tonna»',
     removePhoto: 'Rasmni olib tashlash',
     loginFirst:
       'E’lon joylash uchun Telegram orqali kiring — bu bir marta, 10 soniya. E’lonlaringiz bot va ilova bilan umumiy bo’ladi.',

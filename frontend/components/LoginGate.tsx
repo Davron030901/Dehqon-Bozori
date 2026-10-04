@@ -24,8 +24,12 @@ export default function LoginGate({
   description: string;
   onSignedIn: () => void;
 }) {
-  const [status, setStatus] = useState<'idle' | 'waiting' | 'expired' | 'error'>('idle');
+  const [status, setStatus] = useState<'idle' | 'waiting' | 'expired' | 'refused' | 'error'>(
+    'idle',
+  );
   const [message, setMessage] = useState('');
+  const [matchCode, setMatchCode] = useState('');
+  const [deepLink, setDeepLink] = useState('');
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
@@ -37,9 +41,15 @@ export default function LoginGate({
   async function begin() {
     setStatus('waiting');
     setMessage('Telegramda tasdiqlashni kutmoqdamiz…');
+    setMatchCode('');
+    setDeepLink('');
     try {
-      const { code, deepLink } = await startTelegramLogin();
-      window.open(deepLink, '_blank', 'noopener');
+      const { code, deepLink: link, matchCode: match } = await startTelegramLogin();
+      setMatchCode(match);
+      setDeepLink(link);
+      // Some mobile browsers block a window opened after an await; the link
+      // below stays as the fallback.
+      window.open(link, '_blank', 'noopener');
 
       const deadline = Date.now() + 10 * 60 * 1000;
       if (timer.current) clearInterval(timer.current);
@@ -62,7 +72,15 @@ export default function LoginGate({
           } else if (result.status === 'expired') {
             if (timer.current) clearInterval(timer.current);
             setStatus('expired');
+            setMatchCode('');
             setMessage('Muddat tugadi. Qaytadan urinib ko’ring.');
+          } else if (result.status === 'refused') {
+            if (timer.current) clearInterval(timer.current);
+            setStatus('refused');
+            setMatchCode('');
+            setMessage(
+              'Kirish rad etildi: botda boshqa raqam tanlandi. Agar bu siz bo’lsangiz, qaytadan urinib ko’ring.',
+            );
           }
         } catch {
           /* keep polling — a dropped request is normal on rural 3G */
@@ -106,6 +124,23 @@ export default function LoginGate({
         <Send size={18} aria-hidden="true" />
         Telegram orqali kirish
       </button>
+
+      {status === 'waiting' && matchCode && (
+        <div className="mt-3 rounded-xl border border-primary-200 bg-primary-50 px-4 py-3 text-center">
+          <p className="text-sm text-ink">Botda shu raqamni tanlang:</p>
+          <p className="mt-1 text-4xl font-black tracking-widest text-primary-700">{matchCode}</p>
+          {deepLink && (
+            <a
+              href={deepLink}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="mt-2 inline-block text-sm font-semibold text-primary-700 underline"
+            >
+              Telegram ochilmadimi? Shu yerni bosing
+            </a>
+          )}
+        </div>
+      )}
 
       {message && (
         <p className={`mt-3 rounded-xl border px-4 py-3 text-sm ${tone}`}>{message}</p>

@@ -7,7 +7,7 @@ import { useCallback, useEffect, useState } from 'react';
 
 import ListingForm, { type ListingFormResult, type ListingFormValues } from '@/components/ListingForm';
 import LoginGate from '@/components/LoginGate';
-import { getListingById, getSession, quantityNumber, updateListing, uploadPhoto } from '@/lib/api';
+import { getListingById, getSession, updateListing, uploadPhoto } from '@/lib/api';
 import { getToken } from '@/lib/session';
 import { strings } from '@/lib/strings';
 import type { Listing } from '@/lib/types';
@@ -57,7 +57,11 @@ export default function EditListingPage({ params }: { params: { id: string } }) 
         values.photoUrl = uploaded.photoUrl;
         values.photoFileId = uploaded.photoFileId;
       }
-      await updateListing(token, listing.id, values);
+      // An untouched quantity is not sent: a bare "500" from the bot must not
+      // turn into "500 kg" just because the price was edited.
+      const patch: Partial<ListingFormResult> = { ...values };
+      if ((values.quantity ?? '') === (listing.quantity ?? '').trim()) delete patch.quantity;
+      await updateListing(token, listing.id, patch);
       router.push('/sotuvchi/kabinet');
     } catch (err) {
       setError(err instanceof Error ? err.message : strings.form.genericError);
@@ -116,7 +120,8 @@ export default function EditListingPage({ params }: { params: { id: string } }) 
     category: listing.category,
     price: String(listing.price),
     unit: listing.unit,
-    quantity: String(quantityNumber(listing.quantity) ?? ''),
+    // The raw text — "3 tonna" stays "3 tonna", not "3".
+    quantity: listing.quantity ?? '',
     region: listing.region,
     district: listing.district,
     harvestDate: listing.harvestDate,

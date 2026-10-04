@@ -119,8 +119,11 @@ export interface NewListingInput {
   category: CategoryKey;
   price: number;
   unit: UnitKey;
-  /** Number only; the unit is appended when it is sent ("500" -> "500 kg"). */
-  quantity?: number;
+  /**
+   * Free text, as the seller wrote it ("3 tonna", "500-600 kg"). A bare number
+   * gets the unit when it is sent ("500" -> "500 kg").
+   */
+  quantity?: string;
   district: string;
   region: string;
   harvestDate?: string;

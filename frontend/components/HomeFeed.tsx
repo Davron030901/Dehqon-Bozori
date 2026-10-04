@@ -1,13 +1,13 @@
 'use client';
 
 import { usePathname, useRouter } from 'next/navigation';
-import { useEffect, useMemo, useState, useTransition } from 'react';
+import { useEffect, useMemo, useRef, useState, useTransition } from 'react';
 
 import CategoryChips, { type CategoryValue } from '@/components/CategoryChips';
 import FilterBar, { type FilterOption } from '@/components/FilterBar';
 import ProductGrid from '@/components/ProductGrid';
 import SearchBar from '@/components/SearchBar';
-import { filtersToSearch, getListingsPage } from '@/lib/api';
+import { API_URL, filtersToSearch, getListingsPage } from '@/lib/api';
 import { DISTRICT_TO_REGION, districtsOf } from '@/lib/districts';
 import { regionLabel, regions, strings } from '@/lib/strings';
 import type { Facets, Listing, ListingFilters, ListingPage, SortKey } from '@/lib/types';
@@ -38,27 +38,59 @@ export default function HomeFeed({
   const [extra, setExtra] = useState<Listing[]>([]);
   const [page, setPage] = useState(1);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [loadFailed, setLoadFailed] = useState(false);
+  // Bumped on every filter change, so a "load more" that was still on the way
+  // for the old filter is thrown away instead of appended to the new list.
+  const generation = useRef(0);
 
   const filterKey = filtersToSearch(filters);
 
   // A new filter is a new list — drop whatever "load more" had appended.
   useEffect(() => {
+    generation.current += 1;
     setExtra([]);
     setPage(1);
+    setLoadingMore(false);
+    setLoadFailed(false);
   }, [filterKey]);
 
-  function navigate(next: ListingFilters) {
+  /*
+   * What the buyer has asked for, including navigations still on their way.
+   * `filters` only changes once the server has answered — seconds on 3G — so
+   * building the next URL from it would drop a chip tapped in the meantime
+   * (tap "Asal", then pick Samarqand: the honey filter was lost).
+   */
+  const requested = useRef<ListingFilters>(filters);
+  useEffect(() => {
+    // Nothing in flight: the URL is the truth again (this also covers the back button).
+    if (!pending) requested.current = filters;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pending, filterKey]);
+
+  function navigate(patch: ListingFilters, { reset = false } = {}) {
+    const next = reset ? patch : { ...requested.current, ...patch };
+    requested.current = next;
     startTransition(() => {
       router.replace(`${pathname}${filtersToSearch(next)}`, { scroll: false });
     });
   }
 
   async function loadMore() {
+    const mine = generation.current;
+    const nextPage = page + 1;
     setLoadingMore(true);
-    const { data } = await getListingsPage(filters, page + 1);
-    setExtra((current) => [...current, ...data.items]);
-    setPage(page + 1);
+    setLoadFailed(false);
+    const { data, isDemo } = await getListingsPage(filters, nextPage);
+    if (mine !== generation.current) return; // the filter changed meanwhile
     setLoadingMore(false);
+    // With a live API a demo page means the request failed: keep the page
+    // number, so the next tap asks for the same page instead of skipping it.
+    if (isDemo && API_URL) {
+      setLoadFailed(true);
+      return;
+    }
+    setExtra((current) => [...current, ...data.items]);
+    setPage(nextPage);
   }
 
   // Auto-refresh re-renders page one underneath us; de-duplicate so a listing
@@ -108,14 +140,14 @@ export default function HomeFeed({
   return (
     <>
       <div className="mt-5">
-        <SearchBar value={filters.query} onChange={(query) => navigate({ ...filters, query })} />
+        <SearchBar value={filters.query} onChange={(query) => navigate({ query })} />
       </div>
 
       <div className="mt-4">
         <CategoryChips
           value={filters.category as CategoryValue}
           counts={facets.categories}
-          onChange={(category) => navigate({ ...filters, category })}
+          onChange={(category) => navigate({ category })}
         />
       </div>
 
@@ -124,13 +156,13 @@ export default function HomeFeed({
           region={filters.region}
           // A new region makes the old district meaningless — clear it, or the
           // buyer filters Samarkand listings by a Fergana district.
-          onRegionChange={(region) => navigate({ ...filters, region, district: 'all' })}
+          onRegionChange={(region) => navigate({ region, district: 'all' })}
           district={filters.district}
-          onDistrictChange={(district) => navigate({ ...filters, district })}
+          onDistrictChange={(district) => navigate({ district })}
           availableDistricts={availableDistricts}
           sort={filters.sort}
-          onSortChange={(sort: SortKey) => navigate({ ...filters, sort })}
-          onReset={() => navigate({})}
+          onSortChange={(sort: SortKey) => navigate({ sort })}
+          onReset={() => navigate({}, { reset: true })}
           availableRegions={availableRegions}
           isDirty={isDirty}
         />
@@ -147,6 +179,11 @@ export default function HomeFeed({
 
       {hasMore && (
         <div className="pb-8 text-center">
+          {loadFailed && (
+            <p className="mb-3 text-sm text-red-700" role="alert">
+              {strings.home.loadMoreFailed}
+            </p>
+          )}
           <button
             type="button"
             onClick={() => void loadMore()}

@@ -4,6 +4,8 @@ import {
   formatDate,
   formatPrice,
   isValidPhone,
+  parsePrice,
+  quantityText,
   telHref,
   telegramHref,
   whatsappHref,
@@ -58,7 +60,12 @@ describe('formatDate', () => {
 describe('contact links', () => {
   it('strips punctuation out of tel: hrefs', () => {
     expect(telHref('+998 90 123 45 67')).toBe('tel:+998901234567');
-    expect(telHref('(90) 123-45-67')).toBe('tel:+901234567');
+  });
+
+  it('adds +998 to a number written without it, as the app and backend do', () => {
+    // Not tel:+901234567 — that is a Turkish number.
+    expect(telHref('(90) 123-45-67')).toBe('tel:+998901234567');
+    expect(whatsappHref('90 123 45 67')).toBe('https://wa.me/998901234567');
   });
 
   it('builds wa.me links from digits only', () => {
@@ -81,5 +88,34 @@ describe('isValidPhone', () => {
   it('rejects anything too short to dial', () => {
     expect(isValidPhone('12345')).toBe(false);
     expect(isValidPhone('')).toBe(false);
+  });
+});
+
+describe('parsePrice', () => {
+  it('reads every way a price is written in Uzbekistan, like the bot', () => {
+    for (const raw of ['8000', '8 000', '8\u00a0000', "8'000", '8’000', '8,000', '8.000']) {
+      expect(parsePrice(raw)).toBe(8000);
+    }
+    expect(parsePrice('1.500.000')).toBe(1_500_000);
+  });
+
+  it('keeps a real decimal, so an edit does not multiply the price', () => {
+    expect(parsePrice('8000.5')).toBe(8000.5);
+    expect(parsePrice('8,5')).toBe(8.5);
+  });
+
+  it('rejects text that is not a price', () => {
+    expect(parsePrice('')).toBeNaN();
+    expect(parsePrice('arzon')).toBeNaN();
+    expect(parsePrice('-5')).toBeNaN();
+  });
+});
+
+describe('quantityText', () => {
+  it('adds the unit to a bare number and keeps free text as written', () => {
+    expect(quantityText('500', 'kg')).toBe('500 kg');
+    expect(quantityText('3 tonna', 'kg')).toBe('3 tonna');
+    expect(quantityText('  2   mashina ', 'kg')).toBe('2 mashina');
+    expect(quantityText('', 'kg')).toBeNull();
   });
 });
