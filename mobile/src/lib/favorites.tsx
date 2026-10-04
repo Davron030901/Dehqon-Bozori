@@ -46,18 +46,32 @@ export function FavoritesProvider({ children }: { children: ReactNode }) {
     if (loading) return;
     const before = previousToken.current;
     previousToken.current = token;
+    if (!token && before) {
+      // Signed out: the list on the phone was the account's list. Leaving it
+      // would hand it to the next person who signs in on this phone (and merge
+      // it into THEIR account), so the guest list starts empty.
+      publish([]);
+      void writeJson(KEYS.favoritesMergePending, false);
+      return;
+    }
     if (!token || token === before) return;
     const freshSignIn = before === null && initialised.current;
     initialised.current = true;
     void (async () => {
+      // A merge that failed last time (3G dropped right after sign-in) is
+      // retried, not replaced by the account's list — that would lose the
+      // guest hearts the account never received.
+      if (freshSignIn) await writeJson(KEYS.favoritesMergePending, true);
+      const mergePending = await readJson<boolean>(KEYS.favoritesMergePending, false);
       try {
-        if (freshSignIn) {
+        if (mergePending === true) {
           publish(await api.syncFavorites(token, await readJson<string[]>(KEYS.favorites, [])));
+          await writeJson(KEYS.favoritesMergePending, false);
         } else {
           publish(await api.fetchFavoriteIds(token));
         }
       } catch {
-        /* offline — the local list keeps working */
+        /* offline — the local list keeps working; a pending merge is retried next start */
       }
     })();
   }, [token, loading, publish]);

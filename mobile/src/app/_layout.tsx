@@ -27,8 +27,6 @@ export default function RootLayout() {
           queries: {
             retry: 2,
             staleTime: 30_000,
-            // Keep the last good data on screen while a slow request refreshes it.
-            placeholderData: (previous: unknown) => previous,
           },
         },
       }),

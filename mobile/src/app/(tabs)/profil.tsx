@@ -19,7 +19,7 @@ import type { Lang, SessionInfo } from '@/lib/types';
 
 export default function ProfileScreen() {
   const { t, lang, setLang } = useLanguage();
-  const { token, session } = useSession();
+  const { token, session, verifying, refresh } = useSession();
 
   function chooseLanguage(next: Lang) {
     setLang(next);
@@ -38,7 +38,12 @@ export default function ProfileScreen() {
           </View>
         </Card>
 
-        {token && session ? (
+        {verifying ? (
+          <Card style={styles.gap}>
+            <Text style={styles.muted}>{t.auth.verifying}</Text>
+            <Button title={t.common.retry} icon="refresh" variant="ghost" onPress={() => void refresh()} />
+          </Card>
+        ) : token && session ? (
           // Keyed by the account, so the form starts from the profile as loaded
           // and never has to copy props into state after the fact.
           <ProfileForm key={session.seller.id} session={session} token={token} />

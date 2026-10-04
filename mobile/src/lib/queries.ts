@@ -3,7 +3,7 @@
  * from a listing is instant and a dropped 3G connection shows the last good
  * data instead of a blank screen.
  */
-import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
+import { keepPreviousData, useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import * as api from './api';
 import { useLanguage } from './language';
@@ -17,6 +17,9 @@ export function useListings(filters: ListingFilters) {
     queryFn: ({ pageParam }) => api.fetchListings(filters, pageParam, lang),
     initialPageParam: 1,
     getNextPageParam: (last) => (last.page < last.pages ? last.page + 1 : undefined),
+    // While a new filter loads, keep the old grid on screen instead of a
+    // spinner — public data, so showing it a moment longer is harmless.
+    placeholderData: keepPreviousData,
   });
 }
 
@@ -25,18 +28,22 @@ export function useFacets(region?: string) {
     queryKey: ['facets', region ?? ''],
     queryFn: () => api.fetchFacets(region),
     staleTime: 60_000,
+    placeholderData: keepPreviousData,
   });
 }
 
 export function useListing(id: string | undefined) {
   const { lang } = useLanguage();
+  const queryClient = useQueryClient();
   return useQuery({
     queryKey: ['listing', id, lang],
-    queryFn: () => api.fetchListing(id!, lang),
+    // Only the first load of this screen is a buyer's view. Refetches after an
+    // edit, a "sold" tap or a pull-to-refresh must not count again.
+    queryFn: () => {
+      const seen = queryClient.getQueryData(['listing', id, lang]) !== undefined;
+      return api.fetchListing(id!, lang, !seen);
+    },
     enabled: Boolean(id),
-    // One opening of the screen is one view on the server: do not refetch on
-    // focus and count the same buyer again.
-    staleTime: Infinity,
   });
 }
 

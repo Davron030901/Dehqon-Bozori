@@ -48,4 +48,6 @@ export async function writeJson(key: string, value: unknown): Promise<void> {
 export const KEYS = {
   language: 'db_language',
   favorites: 'db_favorites',
+  /** True while the guest hearts still have to be merged into the account. */
+  favoritesMergePending: 'db_favorites_merge_pending',
 } as const;

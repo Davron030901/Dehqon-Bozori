@@ -1,6 +1,6 @@
 /** "Shikoyat qilish" — flag a listing for the founder. Anonymous, like everything a buyer does. */
 import { useState } from 'react';
-import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import * as api from '@/lib/api';
@@ -52,46 +52,55 @@ export default function ReportSheet({
     }, 300);
   }
 
+  /** With the keyboard up, a tap outside means "hide the keyboard", not "throw my note away". */
+  function tapOutside() {
+    if (Keyboard.isVisible()) Keyboard.dismiss();
+    else close();
+  }
+
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={close}>
-      <Pressable style={styles.backdrop} onPress={close} />
-      <View style={[styles.sheet, { paddingBottom: insets.bottom + space.lg }]}>
-        <Text style={styles.title}>{t.report.title}</Text>
-        {state === 'done' ? (
-          <>
-            <Banner tone="success" text={t.report.thanks} />
-            <Button title={t.common.done} onPress={close} />
-          </>
-        ) : (
-          <>
-            {REASONS.map((key) => (
-              <Pressable
-                key={key}
-                accessibilityRole="radio"
-                accessibilityState={{ checked: reason === key }}
-                onPress={() => setReason(key)}
-                style={styles.option}
-              >
-                <View style={[styles.radio, reason === key && styles.radioOn]} />
-                <Text style={styles.optionText}>{t.report.reasons[key]}</Text>
-              </Pressable>
-            ))}
-            <Input value={note} onChangeText={setNote} placeholder={t.report.note} multiline maxLength={500} />
-            {error ? <Banner tone="error" text={error} /> : null}
-            <View style={styles.row}>
-              <Button title={t.common.cancel} variant="ghost" style={styles.flex} onPress={close} />
-              <Button
-                title={t.report.submit}
-                variant="danger"
-                icon="flag"
-                style={styles.flex}
-                loading={state === 'sending'}
-                onPress={() => void submit()}
-              />
-            </View>
-          </>
-        )}
-      </View>
+      {/* The note field sits at the bottom; without this the iOS keyboard covers it and Submit. */}
+      <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+        <Pressable style={styles.backdrop} onPress={tapOutside} />
+        <View style={[styles.sheet, { paddingBottom: insets.bottom + space.lg }]}>
+          <Text style={styles.title}>{t.report.title}</Text>
+          {state === 'done' ? (
+            <>
+              <Banner tone="success" text={t.report.thanks} />
+              <Button title={t.common.done} onPress={close} />
+            </>
+          ) : (
+            <>
+              {REASONS.map((key) => (
+                <Pressable
+                  key={key}
+                  accessibilityRole="radio"
+                  accessibilityState={{ checked: reason === key }}
+                  onPress={() => setReason(key)}
+                  style={styles.option}
+                >
+                  <View style={[styles.radio, reason === key && styles.radioOn]} />
+                  <Text style={styles.optionText}>{t.report.reasons[key]}</Text>
+                </Pressable>
+              ))}
+              <Input value={note} onChangeText={setNote} placeholder={t.report.note} multiline maxLength={500} />
+              {error ? <Banner tone="error" text={error} /> : null}
+              <View style={styles.row}>
+                <Button title={t.common.cancel} variant="ghost" style={styles.flex} onPress={close} />
+                <Button
+                  title={t.report.submit}
+                  variant="danger"
+                  icon="flag"
+                  style={styles.flex}
+                  loading={state === 'sending'}
+                  onPress={() => void submit()}
+                />
+              </View>
+            </>
+          )}
+        </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }

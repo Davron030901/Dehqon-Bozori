@@ -89,8 +89,19 @@ describe('filtersToParams', () => {
 
 describe('listingBody', () => {
   it('stores the quantity as text with its unit, in the chosen language', () => {
-    expect(listingBody({ quantity: 40, unit: 'liter' }, 'uz').quantity).toBe('40 litr');
-    expect(listingBody({ quantity: 40, unit: 'liter' }, 'ru').quantity).toBe('40 литр');
+    expect(listingBody({ quantity: '40', unit: 'liter' }, 'uz').quantity).toBe('40 litr');
+    expect(listingBody({ quantity: '40', unit: 'liter' }, 'ru').quantity).toBe('40 литр');
+  });
+
+  it('keeps a free-text quantity exactly as the seller wrote it', () => {
+    expect(listingBody({ quantity: '3 tonna', unit: 'kg' }).quantity).toBe('3 tonna');
+    expect(listingBody({ quantity: '500-600 kg', unit: 'kg' }).quantity).toBe('500-600 kg');
+    expect(listingBody({ quantity: 'ko‘p', unit: 'kg' }).quantity).toBe('ko‘p');
+    expect(listingBody({ quantity: '  ', unit: 'kg' }).quantity).toBeNull();
+  });
+
+  it('does not touch the quantity when the edit leaves it out', () => {
+    expect('quantity' in listingBody({ price: 9000, unit: 'kg' })).toBe(false);
   });
 
   it('clears optional fields with null and strips the @', () => {

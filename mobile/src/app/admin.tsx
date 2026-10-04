@@ -24,9 +24,10 @@ type Tab = 'stats' | 'reports' | 'add';
 
 export default function AdminScreen() {
   const { t, lang } = useLanguage();
-  const { token, session } = useSession();
+  const { token, session, verifying } = useSession();
   const [tab, setTab] = useState<Tab>('stats');
 
+  if (verifying) return <Loading label={t.auth.verifying} />;
   if (!token || !session?.isAdmin) {
     return <EmptyState emoji="🔒" title={t.admin.notAdmin} />;
   }

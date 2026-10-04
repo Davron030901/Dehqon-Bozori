@@ -14,6 +14,8 @@ interface LanguageState {
   lang: Lang;
   t: Dictionary;
   setLang: (lang: Lang) => void;
+  /** True once the person picked a language on this phone themselves. */
+  chosen: boolean;
   ready: boolean;
 }
 
@@ -21,21 +23,27 @@ const LanguageContext = createContext<LanguageState | null>(null);
 
 export function LanguageProvider({ children }: { children: ReactNode }) {
   const [lang, setLangState] = useState<Lang>('uz');
+  const [chosen, setChosen] = useState(false);
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
-    void readJson<Lang>(KEYS.language, 'uz').then((saved) => {
+    void readJson<Lang | null>(KEYS.language, null).then((saved) => {
       setLangState(saved === 'ru' ? 'ru' : 'uz');
+      setChosen(saved === 'ru' || saved === 'uz');
       setReady(true);
     });
   }, []);
 
   const setLang = useCallback((next: Lang) => {
     setLangState(next);
+    setChosen(true);
     void writeJson(KEYS.language, next);
   }, []);
 
-  const value = useMemo(() => ({ lang, t: dictionary(lang), setLang, ready }), [lang, setLang, ready]);
+  const value = useMemo(
+    () => ({ lang, t: dictionary(lang), setLang, chosen, ready }),
+    [lang, setLang, chosen, ready],
+  );
   return <LanguageContext.Provider value={value}>{children}</LanguageContext.Provider>;
 }
 

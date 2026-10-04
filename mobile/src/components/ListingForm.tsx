@@ -11,7 +11,7 @@ import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 import type { LocalPhoto } from '@/lib/api';
 import { CATEGORIES, CATEGORY_ORDER, REGION_ORDER, UNITS, UNIT_ORDER, regionLabel } from '@/lib/catalog';
 import { districtsOf, isValidDistrict } from '@/lib/districts';
-import { formatDate, isoDay, isValidPhone } from '@/lib/format';
+import { formatDate, isoDay, isValidPhone, parsePrice } from '@/lib/format';
 import { useLanguage } from '@/lib/language';
 import { pickPhoto } from '@/lib/photo';
 import { colors, radius, space } from '@/lib/theme';
@@ -108,13 +108,9 @@ export default function ListingForm({
   function validate(): boolean {
     const next: Errors = {};
     if (form.productName.trim().length < 2) next.productName = t.form.minLength(2);
-    const price = Number(form.price.replace(/\s/g, '').replace(',', '.'));
+    const price = parsePrice(form.price);
     if (!form.price.trim()) next.price = t.form.required;
     else if (!Number.isFinite(price) || price <= 0) next.price = t.form.invalidPrice;
-    if (form.quantity.trim()) {
-      const quantity = Number(form.quantity.replace(',', '.'));
-      if (!Number.isFinite(quantity) || quantity < 0) next.quantity = t.form.invalidNumber;
-    }
     if (mode !== 'admin' && !form.district) next.district = t.form.required;
     for (const key of ['phone', 'whatsappNumber', 'sellerPhone'] as const) {
       if (form[key].trim() && !isValidPhone(form[key])) next[key] = t.form.invalidPhone;
@@ -131,15 +127,14 @@ export default function ListingForm({
   async function submit() {
     if (!validate()) return;
     setSubmitting(true);
-    const quantity = Number(form.quantity.replace(',', '.'));
     try {
       await onSubmit(
         {
           productName: form.productName.trim(),
           category: form.category,
-          price: Number(form.price.replace(/\s/g, '').replace(',', '.')),
+          price: parsePrice(form.price),
           unit: form.unit,
-          quantity: Number.isFinite(quantity) && quantity > 0 ? quantity : undefined,
+          quantity: form.quantity.trim() || undefined,
           region: form.region,
           district: form.district || undefined,
           harvestDate: form.harvestDate || undefined,
@@ -260,8 +255,8 @@ export default function ListingForm({
         <Input
           value={form.quantity}
           onChangeText={(v) => update('quantity', v)}
-          keyboardType="numeric"
-          placeholder="500"
+          placeholder={t.form.quantityPlaceholder}
+          maxLength={50}
         />
       </Field>
 

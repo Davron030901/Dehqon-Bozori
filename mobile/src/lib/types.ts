@@ -96,7 +96,8 @@ export interface NewListingInput {
   category: CategoryKey;
   price: number;
   unit: UnitKey;
-  quantity?: number;
+  /** Free text, as the seller wrote it; a bare number gets the unit when sent. */
+  quantity?: string;
   region: string;
   district?: string;
   harvestDate?: string;

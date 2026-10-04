@@ -8,7 +8,6 @@ import ListingForm, { type ListingFormResult } from '@/components/ListingForm';
 import LoginPanel from '@/components/LoginPanel';
 import { Banner, ErrorState, Loading } from '@/components/ui';
 import * as api from '@/lib/api';
-import { quantityNumber } from '@/lib/format';
 import { useLanguage } from '@/lib/language';
 import { useSession } from '@/lib/session';
 import { space } from '@/lib/theme';
@@ -17,7 +16,7 @@ import type { Listing } from '@/lib/types';
 export default function EditScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { t, lang } = useLanguage();
-  const { token, session } = useSession();
+  const { token, session, verifying } = useSession();
   const queryClient = useQueryClient();
   const [listing, setListing] = useState<Listing | null>(null);
   const [state, setState] = useState<'loading' | 'ready' | 'missing' | 'error'>('loading');
@@ -25,7 +24,8 @@ export default function EditScreen() {
   const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
-    if (!id || !token) return;
+    // Ownership can only be judged once we know who this is.
+    if (!id || !token || !session) return;
     // Opening the edit form is not a buyer viewing the listing: no view counted.
     api
       .fetchListing(id, lang, false)
@@ -46,7 +46,11 @@ export default function EditScreen() {
         values.photoUrl = uploaded.photoUrl;
         values.photoFileId = uploaded.photoFileId;
       }
-      await api.updateListing(token, listing.id, values, lang);
+      // An untouched quantity is not sent: a bare "500" from the bot must not
+      // turn into "500 kg" just because the price was edited.
+      const patch: Partial<ListingFormResult> = { ...values };
+      if ((values.quantity ?? '') === (listing.quantity ?? '').trim()) delete patch.quantity;
+      await api.updateListing(token, listing.id, patch, lang);
       await queryClient.invalidateQueries();
       Alert.alert(t.edit.saved);
       router.back();
@@ -62,6 +66,7 @@ export default function EditScreen() {
       </ScrollView>
     );
   }
+  if (verifying) return <Loading label={t.auth.verifying} />;
   if (state === 'loading') return <Loading label={t.common.loading} />;
   if (state === 'error') {
     return (
@@ -94,7 +99,8 @@ export default function EditScreen() {
             category: listing.category,
             price: String(listing.price),
             unit: listing.unit,
-            quantity: String(quantityNumber(listing.quantity) ?? ''),
+            // The raw text — "3 tonna" stays "3 tonna", not "3".
+            quantity: listing.quantity ?? '',
             region: listing.region,
             district: listing.district,
             harvestDate: listing.harvestDate ?? '',

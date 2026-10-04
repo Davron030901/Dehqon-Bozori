@@ -39,8 +39,10 @@ export default function CabinetScreen() {
     try {
       if (action === 'delete') await api.deleteListing(token, listing.id);
       else await api.updateListing(token, listing.id, { status: action }, lang);
-      await queryClient.invalidateQueries({ queryKey: ['mine'] });
-      await queryClient.invalidateQueries({ queryKey: ['listings'] });
+      // Every view of this listing — its own screen, the feed, saved lists,
+      // the seller page — not only the cabinet.
+      await queryClient.invalidateQueries();
+      if (action === 'delete') queryClient.removeQueries({ queryKey: ['listing', listing.id] });
     } catch (err) {
       setError(err instanceof Error ? err.message : t.common.error);
     }

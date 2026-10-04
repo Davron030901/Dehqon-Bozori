@@ -12,6 +12,7 @@
 import { API_URL, PAGE_SIZE, TIMEOUT_MS } from './config';
 import { categoryEmoji, categoryLabel, isCategory, isUnit, regionLabel, unitLabel } from './catalog';
 import { demoListings } from './demo';
+import { quantityText } from './format';
 import type {
   AdminDashboard,
   ContactChannel,
@@ -403,17 +404,18 @@ export async function reportListing(
 // --------------------------------------------------------------------------- //
 //  Sign-in (Telegram deep link — no password, no SMS)
 // --------------------------------------------------------------------------- //
-export async function startLogin(): Promise<{ code: string; deepLink: string }> {
-  const res = await request<{ code: string; deep_link: string }>('/api/auth/start', {
-    method: 'POST',
-  });
-  return { code: res.code, deepLink: res.deep_link };
+export async function startLogin(): Promise<{ code: string; deepLink: string; matchCode: string }> {
+  const res = await request<{ code: string; deep_link: string; match_code: string }>(
+    '/api/auth/start',
+    { method: 'POST' },
+  );
+  return { code: res.code, deepLink: res.deep_link, matchCode: res.match_code };
 }
 
-export async function pollLogin(
-  code: string,
-): Promise<{ status: 'pending' | 'ok' | 'expired'; token?: string }> {
-  const res = await request<{ status: 'pending' | 'ok' | 'expired'; token: string | null }>(
+export type LoginStatus = 'pending' | 'ok' | 'expired' | 'refused';
+
+export async function pollLogin(code: string): Promise<{ status: LoginStatus; token?: string }> {
+  const res = await request<{ status: LoginStatus; token: string | null }>(
     `/api/auth/poll?code=${encodeURIComponent(code)}`,
   );
   return { status: res.status, token: res.token ?? undefined };
@@ -510,10 +512,8 @@ export function listingBody(input: Partial<NewListingInput>, lang: Lang = 'uz'):
   if (input.price !== undefined) body.price = input.price;
   if (input.unit !== undefined) body.unit = input.unit;
   if ('quantity' in input) {
-    // Stored as text, the way the bot stores it: "40 litr".
-    body.quantity = input.quantity
-      ? `${input.quantity} ${unitLabel(input.unit ?? 'kg', lang)}`
-      : null;
+    // Stored as text, the way the bot stores it: "40 litr", "3 tonna".
+    body.quantity = quantityText(input.quantity, unitLabel(input.unit ?? 'kg', lang));
   }
   if (input.region !== undefined) body.region = input.region;
   if ('district' in input) body.district = input.district || null;

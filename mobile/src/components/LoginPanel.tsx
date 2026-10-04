@@ -10,7 +10,7 @@
  * Telegram, which is exactly when the answer is waiting.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { AppState, Linking, StyleSheet, Text } from 'react-native';
+import { AppState, Linking, StyleSheet, Text, View } from 'react-native';
 
 import * as api from '@/lib/api';
 import { useLanguage } from '@/lib/language';
@@ -25,9 +25,10 @@ const LIFETIME_MS = 10 * 60 * 1000;
 export default function LoginPanel({ onSignedIn, intro }: { onSignedIn?: () => void; intro?: string }) {
   const { t } = useLanguage();
   const { signIn } = useSession();
-  const [state, setState] = useState<'idle' | 'waiting' | 'expired' | 'error'>('idle');
+  const [state, setState] = useState<'idle' | 'waiting' | 'expired' | 'refused' | 'error'>('idle');
   const [error, setError] = useState<string | null>(null);
-  const login = useRef<{ code: string; deepLink: string; started: number } | null>(null);
+  const login = useRef<{ code: string; deepLink: string; matchCode: string; started: number } | null>(null);
+  const [matchCode, setMatchCode] = useState('');
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
   const busy = useRef(false);
 
@@ -53,9 +54,10 @@ export default function LoginPanel({ onSignedIn, intro }: { onSignedIn?: () => v
         await signIn(result.token);
         setState('idle');
         onSignedIn?.();
-      } else if (result.status === 'expired') {
+      } else if (result.status === 'expired' || result.status === 'refused') {
         stop();
-        setState('expired');
+        login.current = null;
+        setState(result.status);
       }
     } catch {
       /* a dropped request is normal on rural 3G — keep polling */
@@ -79,6 +81,7 @@ export default function LoginPanel({ onSignedIn, intro }: { onSignedIn?: () => v
     try {
       const started = await api.startLogin();
       login.current = { ...started, started: Date.now() };
+      setMatchCode(started.matchCode);
       setState('waiting');
       stop();
       timer.current = setInterval(() => void poll(), POLL_MS);
@@ -104,6 +107,14 @@ export default function LoginPanel({ onSignedIn, intro }: { onSignedIn?: () => v
       <Text style={styles.body}>{intro ?? t.auth.body}</Text>
       {state === 'waiting' ? (
         <>
+          {/* The bot asks for this number, so a link someone else sent cannot
+              log them into your account. */}
+          <View style={styles.match}>
+            <Text style={styles.matchHint}>{t.auth.matchHint}</Text>
+            <Text style={styles.matchCode} accessibilityLabel={`${t.auth.matchHint} ${matchCode}`}>
+              {matchCode}
+            </Text>
+          </View>
           <Banner text={t.auth.waiting} />
           <Button
             title={t.auth.reopen}
@@ -116,6 +127,7 @@ export default function LoginPanel({ onSignedIn, intro }: { onSignedIn?: () => v
         <Button title={t.auth.button} icon="paper-plane" variant="telegram" onPress={() => void begin()} />
       )}
       {state === 'expired' ? <Banner tone="error" text={t.auth.expired} /> : null}
+      {state === 'refused' ? <Banner tone="error" text={t.auth.refused} /> : null}
       {state === 'error' && error ? <Banner tone="error" text={error} /> : null}
     </Card>
   );
@@ -124,4 +136,14 @@ export default function LoginPanel({ onSignedIn, intro }: { onSignedIn?: () => v
 const styles = StyleSheet.create({
   title: { fontSize: 18, fontWeight: '800', color: colors.ink },
   body: { fontSize: 15, lineHeight: 21, color: colors.muted },
+  match: {
+    alignItems: 'center',
+    paddingVertical: space.md,
+    borderRadius: 14,
+    backgroundColor: colors.primary50,
+    borderWidth: 1,
+    borderColor: colors.primary200,
+  },
+  matchHint: { fontSize: 14, color: colors.primary700, fontWeight: '600', textAlign: 'center' },
+  matchCode: { fontSize: 44, fontWeight: '800', color: colors.primary800, letterSpacing: 6 },
 });

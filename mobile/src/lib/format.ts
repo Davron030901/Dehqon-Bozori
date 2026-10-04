@@ -57,15 +57,33 @@ export function telegramHref(username: string): string {
   return `https://t.me/${username.trim().replace(/^@/, '')}`;
 }
 
-/** "500 kg" / "1,5 tonna" -> 500 / 1.5; anything without a usable number -> undefined. */
-export function quantityNumber(raw: string | undefined | null): number | undefined {
-  if (!raw) return undefined;
-  const match = raw.replace(/\s/g, '').replace(',', '.').match(/\d+(\.\d+)?/);
-  const value = match ? Number.parseFloat(match[0]) : NaN;
-  return Number.isFinite(value) && value > 0 ? value : undefined;
-}
-
 /** "Ali Rahimov" -> "A" — the avatar letter when there is no photo. */
 export function initial(name: string | undefined): string {
   return (name ?? '').trim().charAt(0).toUpperCase() || '🌿';
+}
+
+/**
+ * What a seller types as a price -> so'm, the way the bot reads it.
+ *
+ * "8000", "8 000", "8'000", "8,000" and "8.000" are all eight thousand — in
+ * Uzbekistan every one of those is how somebody writes it. Only a single
+ * separator followed by one or two digits is a decimal ("8,5"), so a price
+ * saved with kopecks survives an edit. Anything else -> NaN.
+ */
+export function parsePrice(raw: string): number {
+  const compact = raw.replace(/[\s  '’‘`]/g, '');
+  if (/^\d+[.,]\d{1,2}$/.test(compact)) return Number(compact.replace(',', '.'));
+  const whole = compact.replace(/[.,]/g, '');
+  return /^\d+$/.test(whole) ? Number(whole) : Number.NaN;
+}
+
+/**
+ * The quantity as it is stored: free text, as in the bot ("3 tonna",
+ * "500-600 kg", "ko'p"). A bare number gets the unit so it still reads
+ * "500 kg" on a card; anything else is kept exactly as written.
+ */
+export function quantityText(raw: string | undefined | null, unitLabel: string): string | null {
+  const text = (raw ?? '').trim().replace(/\s+/g, ' ');
+  if (!text) return null;
+  return /^\d+([.,]\d+)?$/.test(text) ? `${text} ${unitLabel}`.trim() : text;
 }
