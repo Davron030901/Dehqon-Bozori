@@ -208,10 +208,16 @@ ichiga oladi.
 Ular allaqachon ishlab turgan bazani yangilash uchun. Masalan `0002` —
 `public_sellers` ko'rinishidagi RLS teshigini yopadi, `0003` — tuman bo'yicha
 qidiruv indekslarini qo'shadi, `0004` — xaridor shikoyatlari (`reports`)
-jadvalini RLS bilan yaratadi. **Eski bazani yangilayotgan bo'lsangiz `0004` ni
-SQL Editor'da bir marta ishga tushiring** — backend jadvalni o'zi ham yaratadi,
-lekin RLS faqat shu skript orqali yoqiladi. Keyinroq kod yangilanganda "bu migratsiyani
-ishlatish kerakmi?" degan savol tug'ilsa, fayl boshidagi izohda javob bor.
+jadvalini RLS bilan yaratadi, `0005` — kirishni tasdiqlash raqami
+(`auth_codes.match_code`) va telefonlarni `+998…` shakliga keltiradi.
+
+**Eski bazani yangilayotgan bo'lsangiz `0004` va `0005` ni SQL Editor'da bir
+marta ishga tushiring.** Backend yetishmagan jadval va ustunlarni ishga tushganda
+o'zi ham qo'shadi, lekin RLS (anon kalit shikoyatlarni o'qiy olmasligi) faqat
+`0004` orqali yoqiladi. Har bir migratsiyani qayta ishga tushirish xavfsiz — CI
+ularning har birini ikki marta ishlatib tekshiradi. Keyinroq kod yangilanganda
+"bu migratsiyani ishlatish kerakmi?" degan savol tug'ilsa, fayl boshidagi
+izohda javob bor.
 
 ### 3.5 Ulanish manzilini olish
 
@@ -303,6 +309,12 @@ python -c "import secrets; print(secrets.token_urlsafe(32))"
 >
 > `SERVE_LEGACY_WEB` ni ham yozmang. U standart holda `false` va shundayligicha
 > qolishi kerak — sayt Vercel'da, Render'da emas.
+>
+> `TRUSTED_PROXY_HOPS` ham standart holda `1` — Render uchun to'g'ri qiymat.
+> Kirish, shikoyat va «Qo'ng'iroq» cheklovlari xaridorning IP manzilini
+> `X-Forwarded-For` sarlavhasining o'ng tomonidan shuncha qadam o'qiydi (chap
+> tomonini mijozning o'zi yozishi mumkin). Render oldiga yana bitta CDN
+> (masalan Cloudflare) qo'ysangiz, `2` qiling.
 
 #### Ikkitasini bo'sh qoldirmang
 

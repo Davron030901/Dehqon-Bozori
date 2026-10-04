@@ -126,8 +126,11 @@ mobile/
 ### Qarorlar
 
 - **Kirish Telegram orqali** — saytdagidek. Parol ham, SMS ham yo'q: ilova
-  `t.me/<bot>?start=login_<kod>` ni ochadi, bot tasdiqlaydi, ilova token oladi.
-  Hisob — botdagi hisob, shuning uchun botdagi e'lonlar shu yerda bo'ladi.
+  `t.me/<bot>?start=login_<kod>` ni ochadi va ikki xonali raqam ko'rsatadi, bot
+  uchta raqam ichidan shunisini tanlashni so'raydi, ilova token oladi. Raqam
+  shuning uchun kerak: birov o'z kirish havolasini sizga yuborsa, uni ko'r-ko'rona
+  bosib, hisobingizni begonaga berib qo'yolmaysiz. Hisob — botdagi hisob,
+  shuning uchun botdagi e'lonlar shu yerda bo'ladi.
 - **Ichki chat yo'q** — ataylab. Savdo qishloqda qanday bo'lsa shunday:
   telefon orqali. Xaridor «Qo'ng'iroq» bossa, sotuvchiga bir soniyada
   Telegram xabari boradi.

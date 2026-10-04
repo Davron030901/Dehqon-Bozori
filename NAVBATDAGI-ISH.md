@@ -1,6 +1,6 @@
 # Navbatdagi ish — sizdan kutilayotgan qadamlar
 
-**Yangilangan:** 2026-10-03
+**Yangilangan:** 2026-10-04
 
 Kod tayyor va tekshirilgan (`HOLAT-HISOBOTI.md`). Qolgani — faqat siz
 bajara oladigan ishlar: sirlar, akkauntlar va haqiqiy telefonda sinov.
@@ -22,9 +22,14 @@ SITE_URL=https://...    ← Vercel'dagi sayt manzili (yangi!)
 
 ## 2. Mavjud bazani yangilash
 
-Supabase → SQL Editor → `backend/supabase/migrations/0004_reports.sql` ni
-bir marta ishga tushiring (shikoyatlar jadvali + RLS). Yangi loyihada
-`schema.sql` yetarli.
+Supabase → SQL Editor → shu ikki faylni tartib bilan bir martadan ishga
+tushiring:
+
+1. `backend/supabase/migrations/0004_reports.sql` — shikoyatlar jadvali + RLS
+2. `backend/supabase/migrations/0005_login_match_and_phones.sql` — kirishni
+   tasdiqlash raqami va eski telefonlarni `+998…` ga o'tkazish
+
+Yangi loyihada `schema.sql` yetarli.
 
 ## 3. Deploy
 
@@ -54,8 +59,10 @@ ko'rsata oladi:
 
 - [ ] «Sotish» → **Suratga olish** — kamera ruxsati so'raladi, rasm chiqadi
 - [ ] Rasm bilan e'lon joylandi, saytda rasm ko'rinadi
-- [ ] «Telegram orqali kirish» → Telegram ochiladi → Start → ilovaga
+- [ ] «Telegram orqali kirish» → ilova ikki xonali raqam ko'rsatadi →
+      Telegram ochiladi → Start → botda **o'sha raqamni** tanlang → ilovaga
       qaytganda avtomatik kirgan bo'lasiz
+- [ ] Botda boshqa raqamni tanlasangiz, ilova «rad etildi» deydi va kirmaydi
 - [ ] E'londagi «Qo'ng'iroq qilish» telefon raqamini teradi, sotuvchiga
       Telegram xabari keladi
 - [ ] Rus tiliga o'tib, ilovani yopib-ochsangiz til saqlanib qoladi

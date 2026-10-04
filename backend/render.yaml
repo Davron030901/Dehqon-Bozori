@@ -57,6 +57,10 @@ services:
         value: "so'm"
       - key: MAX_UPLOAD_MB
         value: "8"
+      # Render's load balancer is the one proxy that appends to
+      # X-Forwarded-For; the rate limits read the client address from it.
+      - key: TRUSTED_PROXY_HOPS
+        value: "1"
 
     # Only needed if you stay on SQLite instead of Supabase Postgres, or if you
     # do not set PHOTO_ARCHIVE_CHAT_ID and want uploaded photos to survive a
