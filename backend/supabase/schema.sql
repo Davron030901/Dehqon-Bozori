@@ -5,7 +5,10 @@
 -- You do NOT strictly have to: the backend calls Base.metadata.create_all() on
 -- startup and will create these tables itself. Running it here first is still
 -- worth doing, because only this script sets up the Row Level Security policies
--- that let the frontend read listings directly with the anon key.
+-- that keep the anon key away from everything but active listings.
+--
+-- CI loads this file into an empty Postgres and runs check_schema_sql.py, which
+-- fails if a table or column the models declare is missing here.
 --
 -- This mirrors the SQLAlchemy models in app/db/database.py exactly. If you
 -- change one, change the other.
@@ -155,9 +158,12 @@ create index if not exists idx_reports_status  on reports (status);
 -- ---------------------------------------------------------------------------
 -- The site shows a t.me deep link, the bot approves the code, the browser polls
 -- and receives a bearer token. No SMS gateway, no passwords.
+-- match_code: the two-digit number the site shows and the bot asks the seller
+-- to pick, so a login link forwarded by someone else cannot be approved blindly.
 create table if not exists auth_codes (
   code       varchar(16) primary key,
   user_id    bigint,
+  match_code varchar(4),
   approved   boolean not null default false,
   consumed   boolean not null default false,
   created_at timestamptz not null default now(),

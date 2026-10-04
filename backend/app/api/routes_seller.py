@@ -17,7 +17,7 @@ from app.db.database import ContactEvent, Favorite, Listing, User
 from app.districts import DISTRICT_TO_REGION, district_label
 
 from . import media
-from .deps import CurrentUser, DbSession
+from .deps import MAX_DB_ID, CurrentUser, DbSession
 from app.models.schemas import (
     FavoriteSyncIn,
     ListingIn,
@@ -163,7 +163,7 @@ async def _owned(session, listing_id: int, user: User) -> Listing:
 async def update_listing(
     session: DbSession,
     user: CurrentUser,
-    listing_id: Annotated[int, Path(ge=1)],
+    listing_id: Annotated[int, Path(ge=1, le=MAX_DB_ID)],
     payload: ListingPatch,
     lang: str = "uz",
 ) -> ListingOut:
@@ -208,7 +208,7 @@ async def update_listing(
 
 @router.delete("/listings/{listing_id}", status_code=204)
 async def delete_listing(
-    session: DbSession, user: CurrentUser, listing_id: Annotated[int, Path(ge=1)]
+    session: DbSession, user: CurrentUser, listing_id: Annotated[int, Path(ge=1, le=MAX_DB_ID)]
 ) -> None:
     listing = await _owned(session, listing_id, user)
     await session.delete(listing)
@@ -254,7 +254,7 @@ async def my_favorite_ids(session: DbSession, user: CurrentUser) -> list[int]:
 
 @router.put("/favorites/{listing_id}", status_code=204)
 async def add_favorite(
-    session: DbSession, user: CurrentUser, listing_id: Annotated[int, Path(ge=1)]
+    session: DbSession, user: CurrentUser, listing_id: Annotated[int, Path(ge=1, le=MAX_DB_ID)]
 ) -> None:
     if await session.get(Listing, listing_id) is None:
         raise HTTPException(404, "E'lon topilmadi / Объявление не найдено")
@@ -272,7 +272,7 @@ async def add_favorite(
 
 @router.delete("/favorites/{listing_id}", status_code=204)
 async def remove_favorite(
-    session: DbSession, user: CurrentUser, listing_id: Annotated[int, Path(ge=1)]
+    session: DbSession, user: CurrentUser, listing_id: Annotated[int, Path(ge=1, le=MAX_DB_ID)]
 ) -> None:
     await session.execute(
         delete(Favorite).where(
@@ -299,7 +299,7 @@ async def sync_favorites(
             )
         ).scalars().all()
     )
-    wanted = {i for i in payload.ids if i > 0} - have
+    wanted = {i for i in payload.ids if 0 < i <= MAX_DB_ID} - have
     if wanted:
         existing = set(
             (

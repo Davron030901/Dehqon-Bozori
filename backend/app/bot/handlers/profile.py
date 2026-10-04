@@ -1,6 +1,8 @@
 """Profile handlers: profile card, language/phone/location updates, admin /stats."""
 from __future__ import annotations
 
+import html
+
 import re
 
 from aiogram import F, Router
@@ -13,7 +15,7 @@ from app.catalog import REGIONS
 from app.config import settings
 from app.db.database import Favorite, Listing, User
 from app.bot.keyboards import language_kb, main_menu, phone_kb, profile_kb, regions_kb, skip_cancel_kb
-from app.db.queries import count_all, get_lang
+from app.db.queries import count_all, get_lang, normalize_phone
 from app.bot.states import ProfileEdit
 from app.bot.texts import btn_texts, t
 
@@ -30,13 +32,16 @@ async def show_profile(message: Message, session: AsyncSession) -> None:
     listings = await count_all(session, Listing, Listing.seller_id == message.from_user.id)
     favs = await count_all(session, Favorite, Favorite.user_id == message.from_user.id)
 
-    username = f"@{user.username}" if user and user.username else t("not_set", lang)
-    phone = user.phone if user and user.phone else t("not_set", lang)
-    name = (user.full_name if user and user.full_name else message.from_user.first_name) or "-"
+    # parse_mode is HTML: everything the person typed is escaped, or a name
+    # like "Ali <3" makes Telegram reject the whole profile message.
+    esc = lambda value: html.escape(str(value), quote=False)  # noqa: E731
+    username = f"@{esc(user.username)}" if user and user.username else t("not_set", lang)
+    phone = esc(user.phone) if user and user.phone else t("not_set", lang)
+    name = esc((user.full_name if user and user.full_name else message.from_user.first_name) or "-")
 
     if user and user.region and user.region in REGIONS:
         region_name = REGIONS[user.region][lang]
-        location = f"{region_name}, {user.village}" if user.village else region_name
+        location = f"{region_name}, {esc(user.village)}" if user.village else region_name
     else:
         location = t("not_set", lang)
 
@@ -111,7 +116,9 @@ async def _save_phone(
     lang = await get_lang(session, message.from_user.id)
     user = await session.get(User, message.from_user.id)
     if user:
-        user.phone = phone
+        # Canonical '+998…' form, so the founder's /admin finds this grower
+        # by the number they read out on the phone.
+        user.phone = normalize_phone(phone)
         await session.commit()
     await state.clear()
     await message.answer(t("phone_updated", lang), reply_markup=main_menu(lang))
@@ -183,7 +190,7 @@ async def set_location_village(
         await session.commit()
     await state.clear()
     region_name = REGIONS.get(new_region, {}).get(lang, new_region)
-    location_text = f"{region_name}, {village}"
+    location_text = f"{region_name}, {html.escape(village, quote=False)}"
     await message.answer(
         t("location_saved", lang, location=location_text), reply_markup=main_menu(lang)
     )

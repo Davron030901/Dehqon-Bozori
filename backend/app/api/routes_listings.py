@@ -5,7 +5,7 @@ from typing import Annotated, Literal
 
 from fastapi import APIRouter, HTTPException, Path, Query, Request, Response
 from fastapi.responses import FileResponse
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, or_, select, update
 
 from app.catalog import region_label
 from app.config import settings
@@ -13,7 +13,7 @@ from app.db.database import ContactEvent, Listing, Report, User
 from app.districts import is_valid_district
 
 from . import media, notify, ratelimit
-from .deps import DbSession, OptionalUser
+from .deps import MAX_BIGINT, MAX_DB_ID, DbSession, OptionalUser
 from app.models.schemas import (
     ContactOut,
     FacetsOut,
@@ -39,8 +39,8 @@ def _parse_ids(raw: str) -> list[int]:
     because the list comes straight out of a phone's local storage."""
     out: list[int] = []
     for chunk in raw.split(","):
-        chunk = chunk.strip()
-        if chunk.isdigit() and int(chunk) > 0 and int(chunk) not in out:
+        chunk = chunk.strip()[:12]
+        if chunk.isdigit() and 0 < int(chunk) <= MAX_DB_ID and int(chunk) not in out:
             out.append(int(chunk))
     return out[:100]
 
@@ -65,7 +65,7 @@ async def list_listings(
     max_price: float | None = Query(None, ge=0),
     sort: Sort = "new",
     include_sold: bool = False,
-    seller_id: int | None = None,
+    seller_id: int | None = Query(None, ge=-MAX_BIGINT, le=MAX_BIGINT),
     ids: str | None = Query(
         None,
         description="Comma-separated listing ids (max 100) — a device's saved favourites",
@@ -144,7 +144,7 @@ async def list_listings(
 @router.get("/listings/{listing_id}", response_model=ListingOut)
 async def get_listing(
     session: DbSession,
-    listing_id: Annotated[int, Path(ge=1)],
+    listing_id: Annotated[int, Path(ge=1, le=MAX_DB_ID)],
     lang: str = "uz",
     count_view: bool = True,
 ) -> ListingOut:
@@ -153,8 +153,15 @@ async def get_listing(
         raise HTTPException(404, "E'lon topilmadi / Объявление не найдено")
 
     if count_view:
-        listing.views = (listing.views or 0) + 1
+        # A server-side increment: two simultaneous readers (the bot and the
+        # website) must not both write views=11 over views=10.
+        await session.execute(
+            update(Listing)
+            .where(Listing.id == listing_id)
+            .values(views=func.coalesce(Listing.views, 0) + 1)
+        )
         await session.commit()
+        await session.refresh(listing)
 
     seller = await session.get(User, listing.seller_id)
     return serialize_listing(listing, lang, seller)
@@ -163,7 +170,7 @@ async def get_listing(
 @router.get("/listings/{listing_id}/similar", response_model=list[ListingOut])
 async def similar_listings(
     session: DbSession,
-    listing_id: Annotated[int, Path(ge=1)],
+    listing_id: Annotated[int, Path(ge=1, le=MAX_DB_ID)],
     limit: int = Query(4, ge=1, le=12),
     lang: str = "uz",
 ) -> list[ListingOut]:
@@ -224,7 +231,9 @@ async def facets(session: DbSession, region: str | None = None) -> FacetsOut:
 
 @router.get("/sellers/{seller_id}", response_model=SellerPublicOut, tags=["sellers"])
 async def seller_profile(
-    session: DbSession, seller_id: int, lang: str = "uz"
+    session: DbSession,
+    seller_id: Annotated[int, Path(ge=-MAX_BIGINT, le=MAX_BIGINT)],
+    lang: str = "uz",
 ) -> SellerPublicOut:
     """A seller's public card. Their listings come from
     `GET /api/listings?seller_id=…`, which already paginates and filters.
@@ -246,6 +255,12 @@ async def seller_profile(
         ).scalar_one()
 
     total = await count()
+    # Only people who sell have a public page. A buyer who once opened the bot,
+    # or the founder, has a users row too — and anyone who knows a Telegram id
+    # could otherwise read that person's phone number and name here. A seller's
+    # details are already public on their listings, so this exposes nothing new.
+    if total == 0:
+        raise HTTPException(404, "Sotuvchi topilmadi / Продавец не найден")
     return SellerPublicOut(
         id=user.id,
         full_name=user.full_name,
@@ -265,7 +280,7 @@ async def report_listing(
     request: Request,
     session: DbSession,
     user: OptionalUser,
-    listing_id: Annotated[int, Path(ge=1)],
+    listing_id: Annotated[int, Path(ge=1, le=MAX_DB_ID)],
     payload: ReportIn,
 ) -> dict:
     """Flag a listing for the founder: spam, fraud, a fake price, already sold.
@@ -300,7 +315,7 @@ async def report_listing(
 async def register_contact(
     request: Request,
     session: DbSession,
-    listing_id: Annotated[int, Path(ge=1)],
+    listing_id: Annotated[int, Path(ge=1, le=MAX_DB_ID)],
     channel: Literal["call", "telegram", "whatsapp"] = "call",
     source: Literal["web", "app"] = "web",
 ) -> ContactOut:
@@ -344,7 +359,7 @@ async def register_contact(
 
 
 @router.get("/photo/{listing_id}")
-async def get_photo(session: DbSession, listing_id: Annotated[int, Path(ge=1)]):
+async def get_photo(session: DbSession, listing_id: Annotated[int, Path(ge=1, le=MAX_DB_ID)]):
     """Serve a listing photo regardless of where it was uploaded.
 
     Website uploads live on disk; Telegram uploads are fetched once through the

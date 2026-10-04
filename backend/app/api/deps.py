@@ -10,6 +10,14 @@ from app.config import settings
 from app.db.database import User, WebSession, session_factory, utcnow
 
 
+# listings.id and friends are Postgres INTEGER. asyncpg refuses to send a
+# larger number at all, so an out-of-range id from a URL or a phone's storage
+# became a 500 instead of a 404. Every id parameter is bounded by this.
+MAX_DB_ID = 2_147_483_647
+# users.id is BIGINT (Telegram ids, and negative ids for offline sellers).
+MAX_BIGINT = 2**63 - 1
+
+
 async def get_session() -> AsyncIterator[AsyncSession]:
     async with session_factory() as session:
         yield session

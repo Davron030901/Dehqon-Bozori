@@ -6,6 +6,8 @@ Two routers are exported:
 """
 from __future__ import annotations
 
+import html
+
 from aiogram import F, Router
 from aiogram.filters import Command, CommandStart, StateFilter
 from aiogram.fsm.context import FSMContext
@@ -32,7 +34,7 @@ async def cmd_start(message: Message, session: AsyncSession, state: FSMContext) 
         await message.answer(t("choose_language", "uz"), reply_markup=language_kb())
     else:
         await message.answer(
-            t("welcome_back", user.language, name=message.from_user.first_name),
+            t("welcome_back", user.language, name=html.escape(message.from_user.first_name or "", quote=False)),
             reply_markup=main_menu(user.language),
         )
 

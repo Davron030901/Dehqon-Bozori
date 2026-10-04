@@ -30,8 +30,22 @@ TEXTS: dict[str, dict[str, str]] = {
         ),
         "web_login_expired": (
             "⏰ Bu kirish havolasi eskirgan.\n\n"
-            "Saytda «Telegram orqali kirish» tugmasini qaytadan bosing."
+            "Saytda yoki ilovada «Telegram orqali kirish» tugmasini qaytadan bosing."
         ),
+        "web_login_confirm": (
+            "🔐 <b>Saytga yoki ilovaga kirish so'raldi</b>\n\n"
+            "Kirish sahifasida <b>ikki xonali raqam</b> ko'rsatilgan. "
+            "Quyidan aynan o'sha raqamni bosing.\n\n"
+            "⚠️ Agar bu havolani kimdir sizga yuborgan bo'lsa yoki siz hozir hech "
+            "qayerga kirmayotgan bo'lsangiz — «Bu men emas» ni bosing. Aks holda "
+            "u odam sizning hisobingizga kirib oladi."
+        ),
+        "web_login_denied": (
+            "🚫 Kirish bekor qilindi.\n\n"
+            "Hisobingiz xavfsiz. Agar bu havolani sizga kimdir yuborgan bo'lsa, "
+            "unga ishonmang — Dehqon Bozori hech qachon havola yuborib kirishni so'ramaydi."
+        ),
+        "ik_not_me": "🚫 Bu men emas",
         "web_site_intro": (
             "🌐 <b>Dehqon Bozori sayti</b>\n\n"
             "Xaridorlar ro'yxatdan o'tmasdan e'lonlarni ko'radi va to'g'ridan-to'g'ri "
@@ -215,8 +229,21 @@ TEXTS: dict[str, dict[str, str]] = {
         ),
         "web_login_expired": (
             "⏰ Ссылка для входа устарела.\n\n"
-            "Нажмите «Войти через Telegram» на сайте ещё раз."
+            "Нажмите «Войти через Telegram» на сайте или в приложении ещё раз."
         ),
+        "web_login_confirm": (
+            "🔐 <b>Запрошен вход на сайт или в приложение</b>\n\n"
+            "На странице входа показано <b>двузначное число</b>. "
+            "Нажмите ниже именно это число.\n\n"
+            "⚠️ Если эту ссылку вам кто-то прислал или вы сейчас никуда не входите — "
+            "нажмите «Это не я». Иначе этот человек войдёт в ваш аккаунт."
+        ),
+        "web_login_denied": (
+            "🚫 Вход отменён.\n\n"
+            "Ваш аккаунт в безопасности. Если ссылку вам прислали — не доверяйте: "
+            "Dehqon Bozori никогда не просит войти по присланной ссылке."
+        ),
+        "ik_not_me": "🚫 Это не я",
         "web_site_intro": (
             "🌐 <b>Сайт Dehqon Bozori</b>\n\n"
             "Покупатели смотрят объявления без регистрации и связываются с вами напрямую.\n\n{url}"

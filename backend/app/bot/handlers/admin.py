@@ -14,6 +14,8 @@ on each entry point rather than assumed from the one before it.
 """
 from __future__ import annotations
 
+import html
+
 import re
 
 from aiogram import F, Router
@@ -246,7 +248,7 @@ async def admin_seller_phone(
             t(
                 "admin_seller_found",
                 lang,
-                name=existing.full_name or "Dehqon",
+                name=html.escape(existing.full_name or "Dehqon", quote=False),
                 count=count,
             )
         )
@@ -479,7 +481,9 @@ async def _admin_preview(
         status="active",
     )
     seller_label = data.get("seller_name") or data.get("seller_phone") or "Dehqon"
-    caption = t("admin_preview_title", lang, seller=seller_label) + "\n\n" + listing_card(
+    caption = t(
+        "admin_preview_title", lang, seller=html.escape(str(seller_label), quote=False)
+    ) + "\n\n" + listing_card(
         preview, lang, show_contact=True
     )
     await state.set_state(AdminListing.confirm)

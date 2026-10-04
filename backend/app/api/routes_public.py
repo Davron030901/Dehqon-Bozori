@@ -15,7 +15,7 @@ import hmac
 from datetime import date
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Path
+from fastapi import APIRouter, Depends, Header, HTTPException, Path, Request
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select
 
@@ -25,7 +25,8 @@ from app.db.database import ContactEvent, Listing, User
 from app.db.queries import get_or_create_offline_seller, normalize_phone
 from app.districts import DISTRICT_TO_REGION
 
-from .deps import DbSession
+from . import ratelimit
+from .deps import MAX_DB_ID, DbSession
 from .routes_listings import get_listing, list_listings
 from .serializers import serialize_listing
 
@@ -185,7 +186,7 @@ class SoldIn(BaseModel):
 )
 async def mark_sold(
     session: DbSession,
-    listing_id: Annotated[int, Path(ge=1)],
+    listing_id: Annotated[int, Path(ge=1, le=MAX_DB_ID)],
     payload: SoldIn | None = None,
 ) -> dict:
     """Soft-hide a listing from buyer results (or bring it back)."""
@@ -203,18 +204,23 @@ async def mark_sold(
 #  Contact analytics
 # --------------------------------------------------------------------------- #
 class ContactEventIn(BaseModel):
-    listing_id: int
+    listing_id: int = Field(ge=1, le=MAX_DB_ID)
     channel: Literal["call", "telegram", "whatsapp"]
 
 
 @router.post("/contact-events", status_code=201, tags=["public"])
-async def log_contact_event(session: DbSession, payload: ContactEventIn) -> dict:
+async def log_contact_event(
+    request: Request, session: DbSession, payload: ContactEventIn
+) -> dict:
     """Record that a buyer tapped a contact button.
 
     Kept deliberately anonymous: which listing and which channel, nothing about
     the buyer. That is enough to see what is working without collecting
     anything a person would mind us having.
     """
+    # Same ceiling as /api/listings/{id}/contact, so neither door can be used
+    # to inflate a listing's numbers on the admin dashboard.
+    ratelimit.enforce(f"contact:{ratelimit.client_ip(request)}", limit=60, window_seconds=600)
     if await session.get(Listing, payload.listing_id) is None:
         raise HTTPException(404, "E'lon topilmadi")
 

@@ -5,6 +5,7 @@ never drift apart on what "vegetables" or "samarkand" is called.
 """
 from __future__ import annotations
 
+import hashlib
 from datetime import datetime, timedelta, timezone
 
 from app.catalog import CATEGORIES, category_label, region_label, unit_label
@@ -14,6 +15,7 @@ from app.db.queries import format_price
 from app.districts import district_label
 
 from app.models.schemas import ListingOut, SellerOut
+from app.phones import normalize_phone
 
 # Uzbekistan is UTC+5 — "listed today" has to mean today in the village,
 # not today in UTC.
@@ -42,27 +44,27 @@ def photo_url_for(listing: Listing) -> str | None:
     happens after a restart on an ephemeral disk.
     """
     if listing.photo_file_id:
-        return f"/api/photo/{listing.id}"
+        # Versioned by the photo itself: /api/photo/<id> is cached for a week,
+        # so after a seller replaces the photo an unversioned URL kept showing
+        # buyers (and Vercel's image optimiser) the old one.
+        version = hashlib.sha1(
+            f"{listing.photo_file_id}|{listing.photo_url or ''}".encode()
+        ).hexdigest()[:10]
+        return f"/api/photo/{listing.id}?v={version}"
     if listing.photo_url:
         return listing.photo_url
     return None
 
 
-def digits_only(value: str | None) -> str | None:
-    if not value:
-        return None
-    kept = "".join(c for c in value if c.isdigit())
-    return kept or None
-
-
 def tel_link(phone: str | None) -> str | None:
-    d = digits_only(phone)
-    return f"tel:+{d}" if d else None
+    # normalize_phone, not bare digits: '90 123 45 67' must dial +998…, not +90…
+    p = normalize_phone(phone)
+    return f"tel:{p}" if p else None
 
 
 def whatsapp_link(number: str | None) -> str | None:
-    d = digits_only(number)
-    return f"https://wa.me/{d}" if d else None
+    p = normalize_phone(number)
+    return f"https://wa.me/{p[1:]}" if p else None
 
 
 def telegram_link(username: str | None) -> str | None:

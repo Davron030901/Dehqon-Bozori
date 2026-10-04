@@ -18,7 +18,11 @@ import tempfile
 
 # Point every module at a scratch database BEFORE anything imports config.
 _TMP_DB = os.path.join(tempfile.mkdtemp(prefix="dehqon_test_"), "test.db")
-os.environ["DATABASE_URL"] = f"sqlite+aiosqlite:///{_TMP_DB}"
+# TEST_DATABASE_URL runs the same checks against a real Postgres (CI does) —
+# SQLite forgives things Postgres does not, and production is Postgres.
+# The database it points at is WIPED: use a throwaway one.
+_TEST_PG = os.environ.get("TEST_DATABASE_URL", "")
+os.environ["DATABASE_URL"] = _TEST_PG or f"sqlite+aiosqlite:///{_TMP_DB}"
 os.environ.setdefault("BOT_TOKEN", "0:test")
 os.environ.setdefault("BOT_USERNAME", "DehqonBozoriTestBot")
 os.environ.setdefault("ADMIN_IDS", "777")
@@ -60,7 +64,13 @@ TINY_PNG = bytes.fromhex(
 async def main() -> int:
     from app.api.app import app
 
+    if _TEST_PG:
+        from app.db.database import Base, engine
+
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.drop_all)
     await init_db()
+    print(f"database: {settings.database_url.split('://', 1)[0]}")
 
     # --------------------------------------------------------------- setup --
     # Simulate the BOT writing straight to the shared tables.
@@ -633,6 +643,177 @@ async def main() -> int:
         codes = [(await c.post("/api/auth/start")).status_code for _ in range(21)]
         check("auth/start is rate limited", codes[-1] == 429 and codes[0] == 200, str(codes[-3:]))
         ratelimit.reset()
+
+        # ======================================================================
+        #  Round three: fixes from the adversarial review
+        # ======================================================================
+        ratelimit.reset()
+
+        # --- login can no longer be hijacked by sending someone the link ---
+        from types import SimpleNamespace
+
+        from app.bot.handlers import web as web_bot
+
+        class FakeMessage:
+            def __init__(self, user):
+                self.from_user = user
+                self.sent: list[tuple[str, object]] = []
+
+            async def answer(self, text, reply_markup=None, **_):
+                self.sent.append((text, reply_markup))
+
+            async def edit_text(self, text, **_):
+                self.sent.append((text, None))
+
+        class FakeCallback:
+            def __init__(self, user, data):
+                self.from_user, self.data = user, data
+                self.message = FakeMessage(user)
+
+            async def answer(self, *_, **__):
+                return None
+
+        class FakeState:
+            async def clear(self):
+                return None
+
+        victim = SimpleNamespace(id=555004, username="victim", full_name="Qurbon", first_name="Qurbon")
+
+        start = (await c.post("/api/auth/start")).json()
+        check("login start returns a two-digit match code",
+              start["match_code"].isdigit() and len(start["match_code"]) == 2, str(start))
+
+        async def open_link(code: str) -> FakeMessage:
+            msg = FakeMessage(victim)
+            async with session_factory() as bs:
+                await web_bot.web_login(
+                    msg, SimpleNamespace(args=f"login_{code}"), bs, FakeState()
+                )
+            return msg
+
+        async def tap(code: str, choice: str) -> FakeCallback:
+            cb = FakeCallback(victim, f"wlogin:{code}:{choice}")
+            async with session_factory() as bs:
+                await web_bot.web_login_choice(cb, bs)
+            return cb
+
+        msg = await open_link(start["code"])
+        text, kb = msg.sent[-1]
+        buttons = [b.callback_data.rsplit(":", 1)[1] for row in kb.inline_keyboard for b in row]
+        check("opening the link alone approves nothing",
+              (await c.get(f"/api/auth/poll?code={start['code']}")).json()["status"] == "pending")
+        check("bot offers the right number among two decoys plus 'not me'",
+              start["match_code"] in buttons and len(set(buttons) - {"no"}) == 3 and "no" in buttons,
+              str(buttons))
+
+        wrong = next(b for b in buttons if b not in ("no", start["match_code"]))
+        cb = await tap(start["code"], wrong)
+        check("a wrong number refuses the login", "bekor" in cb.message.sent[-1][0].lower())
+        await tap(start["code"], start["match_code"])
+        check("a burned code cannot be approved afterwards, and the screen hears why",
+              (await c.get(f"/api/auth/poll?code={start['code']}")).json()["status"] == "refused")
+
+        start = (await c.post("/api/auth/start")).json()
+        await open_link(start["code"])
+        await tap(start["code"], "no")
+        check("'not me' kills the code",
+              (await c.get(f"/api/auth/poll?code={start['code']}")).json()["status"] == "refused")
+
+        start = (await c.post("/api/auth/start")).json()
+        await open_link(start["code"])
+        cb = await tap(start["code"], start["match_code"])
+        polled = (await c.get(f"/api/auth/poll?code={start['code']}")).json()
+        check("the right number logs the person in",
+              polled["status"] == "ok" and polled["user"]["id"] == 555004, str(polled))
+
+        # --- rate limit keys on the proxy-appended address, not the client's ---
+        ratelimit.reset()
+        codes = []
+        for i in range(21):
+            r = await c.post("/api/auth/start",
+                             headers={"X-Forwarded-For": f"10.0.0.{i}, 203.0.113.7"})
+            codes.append(r.status_code)
+        check("spoofed X-Forwarded-For entries do not reset the rate limit",
+              codes[-1] == 429, str(codes[-3:]))
+        ratelimit.reset()
+
+        # --- seller pages only for sellers ---
+        r = await c.get("/api/sellers/777")
+        check("a user with no listings (the admin) has no public page", r.status_code == 404)
+        r = await c.get("/api/sellers/555004")
+        check("a buyer who signed in has no public page", r.status_code == 404)
+
+        # --- ids that do not fit Postgres INTEGER are not a 500 ---
+        r = await c.get(f"/api/listings?ids={listing_id},99999999999&include_sold=true")
+        check("oversized id in ?ids= is ignored", r.status_code == 200
+              and [i["id"] for i in r.json()["items"]] == [listing_id], r.text[:100])
+        check("oversized listing id in the path -> 422",
+              (await c.get("/api/listings/3000000000")).status_code == 422)
+        check("oversized favourite id -> 422",
+              (await c.put("/api/my/favorites/3000000000", headers=H)).status_code == 422)
+        r = await c.post("/api/my/favorites/sync", headers=H, json={"ids": [3000000000, listing_id]})
+        check("favourite sync skips oversized ids", r.status_code == 200 and listing_id in r.json())
+
+        # --- whitespace is not a title ---
+        r = await c.post("/api/my/listings", headers=H, json={
+            "title": "   ", "category": "fruits", "price": 1000, "region": "samarkand"})
+        check("whitespace-only title rejected", r.status_code == 422)
+        r = await c.patch(f"/api/my/listings/{edit_id}", headers=H, json={"title": " a "})
+        check("one-letter title after stripping rejected", r.status_code == 422)
+
+        # --- a replaced photo gets a new URL (the old one is cached a week) ---
+        async with session_factory() as s:
+            row = await s.get(Listing, listing_id)
+            row.photo_file_id = "AgACfirst"
+            await s.commit()
+        first_url = (await c.get(f"/api/listings/{listing_id}?count_view=false")).json()["photo"]
+        async with session_factory() as s:
+            row = await s.get(Listing, listing_id)
+            row.photo_file_id = "AgACsecond"
+            await s.commit()
+        second_url = (await c.get(f"/api/listings/{listing_id}?count_view=false")).json()["photo"]
+        check("photo URL is versioned and changes with the photo",
+              "?v=" in first_url and first_url != second_url, f"{first_url} {second_url}")
+        async with session_factory() as s:
+            row = await s.get(Listing, listing_id)
+            row.photo_file_id = None
+            await s.commit()
+
+        # --- stored phones are normalised, so returning growers are matched ---
+        async with session_factory() as s:
+            s.add(User(id=-9001, full_name="Eski yozuv", phone="+905556677", language="uz"))
+            await s.commit()
+        await init_db()
+        async with session_factory() as s:
+            old = await s.get(User, -9001)
+            check("legacy '+9 digits' phone rewritten to +998 on start-up",
+                  old.phone == "+998905556677", old.phone)
+            from app.db.queries import get_or_create_offline_seller as offline
+
+            again = await offline(s, "Eski yozuv", "90 555 66 77")
+            check("the same grower typed again is matched, not duplicated", again.id == -9001)
+
+        # --- a listing phone typed without +998 is stored canonical and dials Uzbekistan ---
+        r = await c.patch(f"/api/my/listings/{listing_id}", headers=H,
+                          json={"phone": "90 765 43 21", "whatsapp": "(90) 765-43-21"})
+        body = r.json()
+        check("listing phone typed as '90 765 43 21' stored as +998…",
+              r.status_code == 200 and body.get("phone") == "+998907654321", body.get("phone"))
+        r = await c.post(f"/api/listings/{listing_id}/contact?channel=call")
+        cj = r.json()
+        check("contact links dial +998, not +90 (Turkey)",
+              cj.get("tel_link") == "tel:+998907654321"
+              and cj.get("whatsapp_link") == "https://wa.me/998907654321", str(cj))
+        async with session_factory() as s:
+            row = await s.get(Listing, listing_id)
+            row.phone, row.whatsapp = "+907654321", "90 765 43 21"
+            await s.commit()
+        await init_db()
+        async with session_factory() as s:
+            row = await s.get(Listing, listing_id)
+            check("legacy listing phone and WhatsApp rewritten on start-up",
+                  (row.phone, row.whatsapp) == ("+998907654321", "+998907654321"),
+                  f"{row.phone} {row.whatsapp}")
 
         notify.send_background = real_send
 

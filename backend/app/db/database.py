@@ -10,6 +10,7 @@ API can read/write concurrently. Point DATABASE_URL at Postgres
 """
 from __future__ import annotations
 
+import logging
 import secrets
 from datetime import datetime, timedelta, timezone
 
@@ -26,7 +27,10 @@ from sqlalchemy import (
     UniqueConstraint,
     event,
     func,
+    inspect,
+    select,
     text,
+    update,
 )
 from sqlalchemy.ext.asyncio import (
     AsyncAttrs,
@@ -37,6 +41,8 @@ from sqlalchemy.ext.asyncio import (
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 from app.config import settings
+
+logger = logging.getLogger("dehqon_bozori.db")
 
 
 class Base(AsyncAttrs, DeclarativeBase):
@@ -189,9 +195,10 @@ class Report(Base):
 class AuthCode(Base):
     """A short-lived login code.
 
-    Flow: website creates a code -> user opens t.me/<bot>?start=login_<code>
-    -> bot approves the code and attaches the Telegram user id -> website polls
-    and receives a session token.
+    Flow: website/app creates a code and shows its two-digit `match_code` ->
+    user opens t.me/<bot>?start=login_<code> -> bot asks them to pick that
+    number among decoys -> on the right pick it approves the code and attaches
+    the Telegram user id -> website/app polls and receives a session token.
 
     No SMS gateway, no passwords, and the web account IS the bot account, so
     listings follow the seller between the two.
@@ -200,6 +207,10 @@ class AuthCode(Base):
     __tablename__ = "auth_codes"
 
     code: Mapped[str] = mapped_column(String(16), primary_key=True)
+    # Shown on the screen that started the login; the bot asks the person to
+    # pick it among decoys. Someone who was merely SENT the deep link cannot
+    # see that screen, so they cannot approve an attacker's login by accident.
+    match_code: Mapped[str | None] = mapped_column(String(4), nullable=True)
     user_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     approved: Mapped[bool] = mapped_column(Boolean, default=False)
     consumed: Mapped[bool] = mapped_column(Boolean, default=False)
@@ -211,7 +222,11 @@ class AuthCode(Base):
     @staticmethod
     def new(ttl_minutes: int = 10) -> "AuthCode":
         raw = secrets.token_urlsafe(12).replace("-", "").replace("_", "")
-        return AuthCode(code=raw[:12], expires_at=utcnow() + timedelta(minutes=ttl_minutes))
+        return AuthCode(
+            code=raw[:12],
+            match_code=str(10 + secrets.randbelow(90)),  # 10..99
+            expires_at=utcnow() + timedelta(minutes=ttl_minutes),
+        )
 
 
 class WebSession(Base):
@@ -278,27 +293,89 @@ session_factory = async_sessionmaker(
 )
 
 
-# Columns added after the first release. Applied with a best-effort ALTER TABLE
-# so existing databases (including the live dehqon_bozori.db) upgrade in place
-# without losing data.
-_ADD_COLUMNS = (
-    "ALTER TABLE users ADD COLUMN region VARCHAR(32)",
-    "ALTER TABLE users ADD COLUMN village VARCHAR(128)",
-    "ALTER TABLE listings ADD COLUMN photo_url VARCHAR(512)",
-    "ALTER TABLE listings ADD COLUMN telegram_username VARCHAR(64)",
-    "ALTER TABLE listings ADD COLUMN whatsapp VARCHAR(32)",
-    "ALTER TABLE listings ADD COLUMN source VARCHAR(16) DEFAULT 'bot'",
-    "ALTER TABLE listings ADD COLUMN views INTEGER DEFAULT 0",
-    "ALTER TABLE listings ADD COLUMN harvest_date VARCHAR(16)",
+# Columns added after the first release: (table, column, full statement).
+# Added in place on start-up so an existing database (including the live one)
+# upgrades without losing data. Whole literal statements — no SQL is ever
+# assembled from strings.
+_ADD_COLUMNS: tuple[tuple[str, str, str], ...] = (
+    ("users", "region", "ALTER TABLE users ADD COLUMN region VARCHAR(32)"),
+    ("users", "village", "ALTER TABLE users ADD COLUMN village VARCHAR(128)"),
+    ("listings", "photo_url", "ALTER TABLE listings ADD COLUMN photo_url VARCHAR(512)"),
+    ("listings", "telegram_username", "ALTER TABLE listings ADD COLUMN telegram_username VARCHAR(64)"),
+    ("listings", "whatsapp", "ALTER TABLE listings ADD COLUMN whatsapp VARCHAR(32)"),
+    ("listings", "source", "ALTER TABLE listings ADD COLUMN source VARCHAR(16) DEFAULT 'bot'"),
+    ("listings", "views", "ALTER TABLE listings ADD COLUMN views INTEGER DEFAULT 0"),
+    ("listings", "harvest_date", "ALTER TABLE listings ADD COLUMN harvest_date VARCHAR(16)"),
+    ("auth_codes", "match_code", "ALTER TABLE auth_codes ADD COLUMN match_code VARCHAR(4)"),
 )
 
 
+def _missing_columns(sync_conn) -> list[tuple[str, str, str]]:
+    inspector = inspect(sync_conn)
+    missing = []
+    for table, column, statement in _ADD_COLUMNS:
+        existing = {c["name"] for c in inspector.get_columns(table)}
+        if column not in existing:
+            missing.append((table, column, statement))
+    return missing
+
+
 async def init_db() -> None:
-    """Create tables if missing and apply additive column migrations."""
+    """Create missing tables, add missing columns, tidy legacy data.
+
+    Each step commits on its own. This used to run create_all and every
+    ALTER TABLE in ONE transaction, swallowing "column already exists" errors —
+    harmless on SQLite, but on Postgres the first failed statement aborts the
+    transaction and the final COMMIT silently becomes a ROLLBACK, taking the
+    freshly created tables (the new `reports` table among them) with it. Now
+    only the columns that are really missing are added, each in its own
+    transaction, so nothing ever fails on purpose.
+    """
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-        for col_sql in _ADD_COLUMNS:
-            try:
-                await conn.execute(text(col_sql))
-            except Exception:
-                pass  # column already exists
+
+    async with engine.connect() as conn:
+        missing = await conn.run_sync(_missing_columns)
+    for table, column, statement in missing:
+        try:
+            async with engine.begin() as conn:
+                await conn.execute(text(statement))
+            logger.info("Added column %s.%s", table, column)
+        except Exception as exc:  # another instance got there first
+            logger.warning("Could not add %s.%s: %s", table, column, exc)
+
+    await _normalise_stored_phones()
+
+
+async def _normalise_stored_phones() -> None:
+    """Rewrite stored phone numbers into the canonical '+998…' form.
+
+    Offline sellers are found by an exact match on `users.phone`. Phones saved
+    before normalisation learned the +998 rule ('+901234567'), or saved raw from
+    the bot ('998901234567', '+998 90 123 45 67'), would never match the same
+    grower typed in again — and a duplicate seller would be created. Listing
+    phones typed as '90 123 45 67' made the website's Call button dial +90…,
+    which is Turkey. Idempotent: rows already canonical are left alone, so after
+    the first start-up this is one cheap read per column.
+    """
+    from app.phones import normalize_phone
+
+    targets = (
+        (User, User.id, User.phone),
+        (Listing, Listing.id, Listing.phone),
+        (Listing, Listing.id, Listing.whatsapp),
+    )
+    async with session_factory() as session:
+        changed = 0
+        for model, key, column in targets:
+            rows = (await session.execute(select(key, column).where(column.is_not(None)))).all()
+            for row_id, raw in rows:
+                canonical = normalize_phone(raw)
+                if canonical and canonical != raw:
+                    await session.execute(
+                        update(model).where(key == row_id).values({column.key: canonical})
+                    )
+                    changed += 1
+        if changed:
+            await session.commit()
+            logger.info("Normalised %d stored phone number(s)", changed)

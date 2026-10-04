@@ -5,10 +5,13 @@ handled before the generic `/start`.
 """
 from __future__ import annotations
 
+import secrets
+
 from aiogram import F, Router
 from aiogram.filters import Command, CommandObject, CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.types import (
+    CallbackQuery,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
     Message,
@@ -48,8 +51,36 @@ def site_kb(lang: str) -> InlineKeyboardMarkup | None:
 
 
 # --------------------------------------------------------------------------- #
-#  /start login_<code>  — approve a website login
+#  /start login_<code>  — approve a website / app login, by number matching
 # --------------------------------------------------------------------------- #
+def _usable(row: AuthCode | None) -> bool:
+    if row is None or row.consumed or not row.match_code:
+        return False
+    expires = row.expires_at
+    if expires.tzinfo is None:
+        expires = expires.replace(tzinfo=utcnow().tzinfo)
+    return expires >= utcnow()
+
+
+def match_kb(code: str, match_code: str, lang: str) -> InlineKeyboardMarkup:
+    """The right number among two decoys, in random order, plus "not me".
+
+    The person who started the login sees the number on their own screen.
+    Someone who was only SENT the link does not — a guess is right one time in
+    three, and a wrong guess burns the code for good.
+    """
+    numbers = {match_code}
+    while len(numbers) < 3:
+        numbers.add(str(10 + secrets.randbelow(90)))
+    choices = sorted(numbers, key=lambda _: secrets.randbelow(1000))
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text=n, callback_data=f"wlogin:{code}:{n}") for n in choices],
+            [InlineKeyboardButton(text=t("ik_not_me", lang), callback_data=f"wlogin:{code}:no")],
+        ]
+    )
+
+
 @router.message(CommandStart(deep_link=True, magic=F.args.startswith("login_")))
 async def web_login(
     message: Message,
@@ -57,26 +88,53 @@ async def web_login(
     session: AsyncSession,
     state: FSMContext,
 ) -> None:
+    """Never approve on the tap alone — ask which number the screen shows.
+
+    Approving straight away let anyone take over an account: start a login,
+    send the t.me link to a seller ("your listing got a complaint, open this"),
+    and the seller's single tap on Start handed the attacker a 60-day session.
+    """
     await state.clear()
     user, _ = await get_or_create_user(session, message.from_user)
     lang = user.language or "uz"
 
     code_value = (command.args or "")[len("login_"):].strip()
     row = await session.get(AuthCode, code_value) if code_value else None
-
-    expires = row.expires_at if row else None
-    if expires is not None and expires.tzinfo is None:
-        expires = expires.replace(tzinfo=utcnow().tzinfo)
-
-    if row is None or row.consumed or (expires and expires < utcnow()):
+    if not _usable(row):
         await message.answer(t("web_login_expired", lang), reply_markup=main_menu(lang))
         return
 
-    row.approved = True
-    row.user_id = user.id
-    await session.commit()
+    await message.answer(
+        t("web_login_confirm", lang), reply_markup=match_kb(row.code, row.match_code, lang)
+    )
 
-    await message.answer(t("web_login_ok", lang), reply_markup=main_menu(lang))
+
+@router.callback_query(F.data.startswith("wlogin:"))
+async def web_login_choice(callback: CallbackQuery, session: AsyncSession) -> None:
+    user, _ = await get_or_create_user(session, callback.from_user)
+    lang = user.language or "uz"
+    parts = (callback.data or "").split(":", 2)
+    code_value, choice = (parts[1], parts[2]) if len(parts) == 3 else ("", "")
+    row = await session.get(AuthCode, code_value) if code_value else None
+
+    if not _usable(row) or row.approved:
+        text = t("web_login_expired", lang)
+    elif choice != row.match_code:
+        # Wrong number or "not me": this code can never be approved again.
+        row.consumed = True
+        await session.commit()
+        text = t("web_login_denied", lang)
+    else:
+        row.approved = True
+        row.user_id = user.id
+        await session.commit()
+        text = t("web_login_ok", lang)
+
+    try:
+        await callback.message.edit_text(text)
+    except Exception:
+        await callback.message.answer(text, reply_markup=main_menu(lang))
+    await callback.answer()
 
 
 # --------------------------------------------------------------------------- #

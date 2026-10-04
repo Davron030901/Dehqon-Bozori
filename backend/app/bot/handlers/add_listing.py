@@ -30,6 +30,7 @@ from app.bot.keyboards import (
 from app.districts import district_label, is_valid_district
 from app.db.queries import (
     format_price,
+    normalize_phone,
     get_lang,
     get_or_create_user,
     get_user_listings,
@@ -364,6 +365,10 @@ async def _save_phone_and_preview(
     lang: str,
     phone: str | None,
 ) -> None:
+    # One canonical form ('+998901234567') for every phone the bot stores:
+    # Telegram's contact button sends '998901234567', people type
+    # '90 123 45 67' — and the founder's /admin finds growers by exact match.
+    phone = normalize_phone(phone)
     await state.update_data(phone=phone)
     # Remember the phone on the user profile for next time.
     if phone:

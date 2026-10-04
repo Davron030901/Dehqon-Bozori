@@ -6,6 +6,8 @@
 --
 -- Backend bu jadvalni o'zi ham yaratadi (create_all), lekin RLS faqat shu
 -- skript orqali yoqiladi — anon kalit bu jadvalga umuman tegolmasligi kerak.
+-- Shuning uchun ishlab turgan bazada bu skriptni bir marta ishga tushirish
+-- MAJBURIY.
 --
 --   Dashboard → SQL Editor → New query → shu faylni joylang → Run
 -- ---------------------------------------------------------------------------

@@ -19,7 +19,7 @@ from app.db.database import ContactEvent, Listing, Report, User, utcnow
 from app.db.queries import get_or_create_offline_seller, normalize_phone  # noqa: F401
 from app.districts import district_label
 
-from .deps import AdminUser, DbSession
+from .deps import MAX_DB_ID, AdminUser, DbSession
 from app.models.schemas import (
     AdminListingIn,
     ListingOut,
@@ -106,7 +106,7 @@ async def create_for_seller(
 
 @router.delete("/listings/{listing_id}", status_code=204)
 async def delete_any(
-    session: DbSession, _admin: AdminUser, listing_id: Annotated[int, Path(ge=1)]
+    session: DbSession, _admin: AdminUser, listing_id: Annotated[int, Path(ge=1, le=MAX_DB_ID)]
 ) -> None:
     listing = await session.get(Listing, listing_id)
     if listing is None:
@@ -219,7 +219,7 @@ async def list_reports(
 async def update_report(
     session: DbSession,
     _admin: AdminUser,
-    report_id: Annotated[int, Path(ge=1)],
+    report_id: Annotated[int, Path(ge=1, le=MAX_DB_ID)],
     payload: ReportPatch,
 ) -> ReportOut:
     report = await session.get(Report, report_id)

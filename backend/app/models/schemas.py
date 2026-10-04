@@ -6,6 +6,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
 
+from app.phones import normalize_phone
+
 
 def _own_upload(value: str | None) -> str | None:
     """A client may only point a listing at a photo it uploaded through us.
@@ -138,10 +140,12 @@ class AuthStartOut(BaseModel):
     code: str
     deep_link: str
     expires_at: datetime
+    # Show this on the screen; the bot asks the person to pick it.
+    match_code: str
 
 
 class AuthPollOut(BaseModel):
-    status: str                     # pending | ok | expired
+    status: str                     # pending | ok | expired | refused
     token: str | None = None
     user: SellerOut | None = None
     is_admin: bool = False
@@ -178,9 +182,18 @@ class ListingIn(BaseModel):
     def _strip_at(cls, v: str | None) -> str | None:
         return v.lstrip("@").strip() if v else None
 
-    @field_validator("title", "quantity", "district", "description")
+    # Stored canonical ('+998…'), as the bot and the admin path store them, so
+    # the same grower typed two ways is one seller and every link dials Uzbekistan.
+    @field_validator("phone", "whatsapp")
     @classmethod
-    def _clean(cls, v: str | None) -> str | None:
+    def _phone(cls, v: str | None) -> str | None:
+        return normalize_phone(v) if v else v
+
+    # mode="before": strip FIRST, so min_length sees "   " as empty and a
+    # whitespace-only title is a 422, not a blank card in the feed.
+    @field_validator("title", "quantity", "district", "description", mode="before")
+    @classmethod
+    def _clean(cls, v: object) -> object:
         return v.strip() if isinstance(v, str) else v
 
     @field_validator("photo_url")
@@ -226,9 +239,18 @@ class ListingPatch(BaseModel):
     def _strip_at(cls, v: str | None) -> str | None:
         return v.lstrip("@").strip() if v else v
 
-    @field_validator("title", "quantity", "district", "description")
+    # Stored canonical ('+998…'), as the bot and the admin path store them, so
+    # the same grower typed two ways is one seller and every link dials Uzbekistan.
+    @field_validator("phone", "whatsapp")
     @classmethod
-    def _clean(cls, v: str | None) -> str | None:
+    def _phone(cls, v: str | None) -> str | None:
+        return normalize_phone(v) if v else v
+
+    # mode="before": strip FIRST, so min_length sees "   " as empty and a
+    # whitespace-only title is a 422, not a blank card in the feed.
+    @field_validator("title", "quantity", "district", "description", mode="before")
+    @classmethod
+    def _clean(cls, v: object) -> object:
         return v.strip() if isinstance(v, str) else v
 
     @field_validator("photo_url")

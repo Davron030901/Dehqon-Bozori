@@ -58,6 +58,13 @@ class Settings(BaseSettings):
     # true to bring the old pages back at /, /e/{id}, /sell, /my, /admin.
     serve_legacy_web: bool = False
 
+    # How many proxies in front of the app APPEND to X-Forwarded-For. The
+    # rate limiter reads the client address that many entries from the right,
+    # because anything further left was written by the client. Render = 1. If
+    # every visitor seems to share one address (e.g. another CDN in front),
+    # raise it.
+    trusted_proxy_hops: int = 1
+
     # --- Access -----------------------------------------------------------
     # Comma-separated Telegram user IDs allowed to use /stats and the admin panel
     admin_ids: str = ""

@@ -4,10 +4,12 @@ from __future__ import annotations
 import html
 
 from aiogram import Bot, F, Router
+from sqlalchemy import func, update
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api import ratelimit
 from app.catalog import category_label, region_label
 from app.config import settings
 from app.db.database import ContactEvent, Listing, User
@@ -130,7 +132,10 @@ async def _show_results(
 
     pages = max(1, (total + per - 1) // per)
     if search:
-        header = t("results_search_header", lang, q=search, count=total, page=page + 1, pages=pages)
+        header = t(
+            "results_search_header", lang, q=html.escape(search, quote=False),
+            count=total, page=page + 1, pages=pages,
+        )
     else:
         cat_txt = category_label(category, lang) if category else t("all_categories", lang)
         reg_txt = region_label(region, lang) if region else t("all_regions", lang)
@@ -168,9 +173,15 @@ async def view_listing(callback: CallbackQuery, session: AsyncSession) -> None:
         await callback.answer(t("listing_gone", lang), show_alert=True)
         return
     # Views are counted on the website and in the app; a buyer opening the
-    # listing in the bot is just as real.
-    listing.views = (listing.views or 0) + 1
+    # listing in the bot is just as real. A server-side increment, so a view
+    # counted by the website at the same moment is not overwritten.
+    await session.execute(
+        update(Listing)
+        .where(Listing.id == listing_id)
+        .values(views=func.coalesce(Listing.views, 0) + 1)
+    )
     await session.commit()
+    await session.refresh(listing)
     seller = await session.get(User, listing.seller_id)
     caption = listing_card(listing, lang, show_contact=False, seller=seller)
     fav = await is_favorite(session, callback.from_user.id, listing_id)
@@ -197,9 +208,9 @@ async def contact_seller(
     parts = [t("contact_title", lang)]
     phone = listing.phone or (seller.phone if seller else None)
     if phone:
-        parts.append(t("contact_phone", lang, phone=phone))
+        parts.append(t("contact_phone", lang, phone=html.escape(phone, quote=False)))
     if seller and seller.username:
-        parts.append(t("contact_tg", lang, username=seller.username))
+        parts.append(t("contact_tg", lang, username=html.escape(seller.username, quote=False)))
     if not phone and not (seller and seller.username):
         parts.append(t("contact_none", lang))
 
@@ -207,13 +218,19 @@ async def contact_seller(
         "\n".join(parts), reply_markup=contact_link_kb(seller, lang)
     )
 
-    # Count the tap like the website does, so the admin dashboard and the
-    # seller's own numbers include buyers who came through the bot.
-    session.add(ContactEvent(listing_id=listing_id, channel="telegram", source="bot"))
-    await session.commit()
+    # The same rule as POST /api/listings/{id}/contact: the buyer always gets
+    # the contacts, but one buyer counts — and buzzes the seller — at most once
+    # per listing every ten minutes. Otherwise tapping the button in a loop
+    # floods a grower's Telegram and inflates the admin dashboard.
+    first_tap = ratelimit.allow(
+        f"notify:tg{callback.from_user.id}:{listing_id}", limit=1, window_seconds=600
+    )
+    if first_tap:
+        session.add(ContactEvent(listing_id=listing_id, channel="telegram", source="bot"))
+        await session.commit()
 
     # Best-effort notification to the seller.
-    if seller:
+    if seller and first_tap and seller.id != callback.from_user.id:
         buyer = callback.from_user
         buyer_ref = f"@{buyer.username}" if buyer.username else (buyer.full_name or str(buyer.id))
         try:
@@ -303,6 +320,6 @@ async def do_search(message: Message, state: FSMContext, session: AsyncSession) 
     await state.set_state(Browse.results)
     # Restore the main menu, then send the results list.
     await message.answer(
-        t("search_results_for", lang, q=query), reply_markup=main_menu(lang)
+        t("search_results_for", lang, q=html.escape(query, quote=False)), reply_markup=main_menu(lang)
     )
     await _show_results(message, state, session, edit=False)
