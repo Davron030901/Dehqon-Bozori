@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from 'react';
 import { API_URL, pollTelegramLogin, startTelegramLogin } from '@/lib/api';
 import { mergeFavoritesAfterLogin } from '@/lib/favorites';
 import { setToken } from '@/lib/session';
+import { strings } from '@/lib/strings';
 
 /**
  * Passwordless sign-in for sellers.
@@ -40,16 +41,16 @@ export default function LoginGate({
 
   async function begin() {
     setStatus('waiting');
-    setMessage('Telegramda tasdiqlashni kutmoqdamiz…');
+    setMessage('');
     setMatchCode('');
     setDeepLink('');
     try {
       const { code, deepLink: link, matchCode: match } = await startTelegramLogin();
+      // Telegram is NOT opened from here. The bot asks for the number shown
+      // below; on a phone, jumping to Telegram at once would hide it before it
+      // was read, and a guess is wrong two times in three (and burns the code).
       setMatchCode(match);
       setDeepLink(link);
-      // Some mobile browsers block a window opened after an await; the link
-      // below stays as the fallback.
-      window.open(link, '_blank', 'noopener');
 
       const deadline = Date.now() + 10 * 60 * 1000;
       if (timer.current) clearInterval(timer.current);
@@ -57,7 +58,7 @@ export default function LoginGate({
         if (Date.now() > deadline) {
           if (timer.current) clearInterval(timer.current);
           setStatus('expired');
-          setMessage('Muddat tugadi. Qaytadan urinib ko’ring.');
+          setMessage(strings.login.expired);
           return;
         }
         try {
@@ -73,14 +74,12 @@ export default function LoginGate({
             if (timer.current) clearInterval(timer.current);
             setStatus('expired');
             setMatchCode('');
-            setMessage('Muddat tugadi. Qaytadan urinib ko’ring.');
+            setMessage(strings.login.expired);
           } else if (result.status === 'refused') {
             if (timer.current) clearInterval(timer.current);
             setStatus('refused');
             setMatchCode('');
-            setMessage(
-              'Kirish rad etildi: botda boshqa raqam tanlandi. Agar bu siz bo’lsangiz, qaytadan urinib ko’ring.',
-            );
+            setMessage(strings.login.refused);
           }
         } catch {
           /* keep polling — a dropped request is normal on rural 3G */
@@ -88,7 +87,7 @@ export default function LoginGate({
       }, 2000);
     } catch (error) {
       setStatus('error');
-      setMessage(error instanceof Error ? error.message : 'Xatolik yuz berdi.');
+      setMessage(error instanceof Error ? error.message : strings.login.failed);
     }
   }
 
@@ -98,8 +97,8 @@ export default function LoginGate({
         <h2 className="text-lg font-extrabold text-ink">{title}</h2>
         <p className="mt-1.5 text-sm leading-relaxed text-muted">{description}</p>
         <p className="mt-4 rounded-xl border border-harvest/30 bg-harvest/10 px-4 py-3 text-sm text-[#8a5316]">
-          Server ulanmagan. Kirish uchun <code>NEXT_PUBLIC_API_URL</code> ni sozlang —
-          shu paytgacha formalar brauzeringizda saqlanadi.
+          {strings.login.noServerBefore} <code>NEXT_PUBLIC_API_URL</code>{' '}
+          {strings.login.noServerAfter}
         </p>
       </div>
     );
@@ -115,30 +114,37 @@ export default function LoginGate({
       <h2 className="text-lg font-extrabold text-ink">{title}</h2>
       <p className="mt-1.5 text-sm leading-relaxed text-muted">{description}</p>
 
-      <button
-        type="button"
-        onClick={begin}
-        disabled={status === 'waiting'}
-        className="mt-4 flex w-full items-center justify-center gap-2.5 rounded-xl bg-[#229ED9] px-4 py-3.5 text-[15px] font-bold text-white transition hover:bg-[#1b8ec3] disabled:opacity-60"
-      >
-        <Send size={18} aria-hidden="true" />
-        Telegram orqali kirish
-      </button>
+      {/* Hidden once the number is up: the "open Telegram" link below is the one next step. */}
+      {!(status === 'waiting' && matchCode) && (
+        <button
+          type="button"
+          onClick={begin}
+          disabled={status === 'waiting'}
+          className="mt-4 flex w-full items-center justify-center gap-2.5 rounded-xl bg-[#229ED9] px-4 py-3.5 text-[15px] font-bold text-white transition hover:bg-[#1b8ec3] disabled:opacity-60"
+        >
+          <Send size={18} aria-hidden="true" />
+          {strings.login.button}
+        </button>
+      )}
 
       {status === 'waiting' && matchCode && (
-        <div className="mt-3 rounded-xl border border-primary-200 bg-primary-50 px-4 py-3 text-center">
-          <p className="text-sm text-ink">Botda shu raqamni tanlang:</p>
+        <div className="mt-3 rounded-xl border border-primary-200 bg-primary-50 px-4 py-4 text-center">
+          <p className="text-sm text-ink">{strings.login.matchHint}</p>
           <p className="mt-1 text-4xl font-black tracking-widest text-primary-700">{matchCode}</p>
           {deepLink && (
             <a
               href={deepLink}
               target="_blank"
               rel="noopener noreferrer"
-              className="mt-2 inline-block text-sm font-semibold text-primary-700 underline"
+              className="mt-3 flex w-full items-center justify-center gap-2.5 rounded-xl bg-[#229ED9] px-4 py-3 text-[15px] font-bold text-white transition hover:bg-[#1b8ec3]"
             >
-              Telegram ochilmadimi? Shu yerni bosing
+              <Send size={18} aria-hidden="true" />
+              {strings.login.openTelegram}
             </a>
           )}
+          <p className="mt-3 text-xs text-muted">
+            {strings.login.returnHere}
+          </p>
         </div>
       )}
 

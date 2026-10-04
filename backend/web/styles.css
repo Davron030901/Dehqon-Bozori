@@ -207,6 +207,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .notice { border-radius: var(--radius-sm); padding: 12px 14px; font-size: 14.5px; border: 1px solid; }
 .notice.ok { background: var(--green-soft); border-color: var(--green-line); color: var(--green-dark); }
 .notice.warn { background: var(--amber-soft); border-color: #f0d5ae; color: #8a5316; }
+.notice .match-code { font-size: 36px; font-weight: 800; letter-spacing: 6px; text-align: center; margin: 6px 0; }
 .notice.err { background: #fdeeec; border-color: #f2cdc7; color: #93382b; }
 
 .empty { text-align: center; padding: 46px 18px; color: var(--muted); }

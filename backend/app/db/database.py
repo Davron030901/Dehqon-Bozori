@@ -10,6 +10,7 @@ API can read/write concurrently. Point DATABASE_URL at Postgres
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import secrets
 from datetime import datetime, timedelta, timezone
@@ -320,6 +321,12 @@ def _missing_columns(sync_conn) -> list[tuple[str, str, str]]:
     return missing
 
 
+# The API and the bot run in one process and both call init_db() at start-up.
+# Concurrently, on an empty database, both saw "no users table" and both ran
+# CREATE TABLE — the slower one crashed the container. One at a time instead.
+_init_lock = asyncio.Lock()
+
+
 async def init_db() -> None:
     """Create missing tables, add missing columns, tidy legacy data.
 
@@ -331,6 +338,11 @@ async def init_db() -> None:
     only the columns that are really missing are added, each in its own
     transaction, so nothing ever fails on purpose.
     """
+    async with _init_lock:
+        await _init_db()
+
+
+async def _init_db() -> None:
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
@@ -357,7 +369,18 @@ async def _normalise_stored_phones() -> None:
     phones typed as '90 123 45 67' made the website's Call button dial +90…,
     which is Turkey. Idempotent: rows already canonical are left alone, so after
     the first start-up this is one cheap read per column.
+
+    Housekeeping must never stop the service from starting: a value that is
+    not a phone number at all (more than 15 digits) is left as it is, and any
+    error is logged rather than raised.
     """
+    try:
+        await _rewrite_phones()
+    except Exception:
+        logger.exception("Could not normalise stored phone numbers")
+
+
+async def _rewrite_phones() -> None:
     from app.phones import normalize_phone
 
     targets = (
@@ -371,7 +394,12 @@ async def _normalise_stored_phones() -> None:
             rows = (await session.execute(select(key, column).where(column.is_not(None)))).all()
             for row_id, raw in rows:
                 canonical = normalize_phone(raw)
-                if canonical and canonical != raw:
+                if canonical is None:
+                    if raw.strip():
+                        logger.warning("Left %s #%s phone %r as is: not a phone number",
+                                       model.__tablename__, row_id, raw)
+                    continue
+                if canonical != raw:
                     await session.execute(
                         update(model).where(key == row_id).values({column.key: canonical})
                     )

@@ -60,6 +60,9 @@
       login_btn: 'Telegram orqali kirish',
       login_wait: 'Telegramda tasdiqlashni kutmoqdamiz…',
       login_expired: 'Muddat tugadi. Qaytadan urinib ko‘ring.',
+      login_match: 'Avval shu raqamni eslab qoling — bot uni tanlashni so‘raydi:',
+      login_open: 'Telegram’ni ochish',
+      login_refused: 'Kirish rad etildi: botda boshqa raqam tanlandi. Qaytadan urinib ko‘ring.',
       login_ok: 'Xush kelibsiz!',
       form_title: 'Yangi e‘lon',
       form_p: 'Rasm qo‘shsangiz, xaridorlar 3 barobar ko‘p bog‘lanadi.',
@@ -154,6 +157,9 @@
       login_btn: 'Войти через Telegram',
       login_wait: 'Ждём подтверждения в Telegram…',
       login_expired: 'Срок истёк. Попробуйте ещё раз.',
+      login_match: 'Сначала запомните это число — бот попросит его выбрать:',
+      login_open: 'Открыть Telegram',
+      login_refused: 'Вход отклонён: в боте выбрано другое число. Попробуйте ещё раз.',
       login_ok: 'Добро пожаловать!',
       form_title: 'Новое объявление',
       form_p: 'С фото покупатели откликаются в 3 раза чаще.',
@@ -404,9 +410,15 @@
         statusHost.textContent = 'BOT_USERNAME .env faylida ko‘rsatilmagan.';
         return;
       }
-      window.open(res.deep_link, '_blank', 'noopener');
+      // The number first, Telegram second: the bot asks for this number, and
+      // opening Telegram straight away would hide it before it was read.
       statusHost.className = 'notice warn';
-      statusHost.textContent = t('login_wait');
+      statusHost.textContent = '';
+      statusHost.appendChild(el('p', { text: t('login_match') }));
+      statusHost.appendChild(el('p', { class: 'match-code', text: res.match_code || '' }));
+      statusHost.appendChild(el('a', { class: 'btn block', href: res.deep_link, target: '_blank',
+        rel: 'noopener', text: '✈️ ' + t('login_open') }));
+      statusHost.appendChild(el('p', { text: t('login_wait') }));
 
       var stop = Date.now() + 10 * 60 * 1000;
       clearInterval(pollTimer);
@@ -425,10 +437,10 @@
             statusHost.className = 'notice ok';
             statusHost.textContent = t('login_ok');
             done(p.user);
-          } else if (p.status === 'expired') {
+          } else if (p.status === 'expired' || p.status === 'refused') {
             clearInterval(pollTimer);
             statusHost.className = 'notice err';
-            statusHost.textContent = t('login_expired');
+            statusHost.textContent = t(p.status === 'refused' ? 'login_refused' : 'login_expired');
           }
         }).catch(function () {});
       }, 1800);

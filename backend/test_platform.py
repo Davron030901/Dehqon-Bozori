@@ -69,7 +69,10 @@ async def main() -> int:
 
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.drop_all)
-    await init_db()
+    # The container runs the API and the bot in one process, and both call
+    # init_db() at start-up — on an empty database that once crashed with
+    # "table users already exists". Start the suite exactly that way.
+    await asyncio.gather(init_db(), init_db())
     print(f"database: {settings.database_url.split('://', 1)[0]}")
 
     # --------------------------------------------------------------- setup --
@@ -441,6 +444,23 @@ async def main() -> int:
         })
         check("POST /listings rejects an unknown category", r.status_code == 422)
 
+        r = await c.post("/listings", headers=AT, json={
+            "seller_phone": "90 000 00 01", "product_name": "Piyoz",
+            "category": "vegetables", "price_per_kg": 4000, "region": "samarkand",
+            "phone": "90 765 43 21", "whatsapp_number": "(90) 765-43-21",
+        })
+        body = r.json()
+        check("X-Admin-Token listing stores phone and WhatsApp as +998…",
+              r.status_code == 201 and body.get("phone") == "+998907654321"
+              and body.get("whatsapp") == "+998907654321"
+              and body["seller"]["id"] == new_seller_id, r.text[:160])
+        r = await c.post("/listings", headers=AT, json={
+            "seller_phone": "+998900000001", "product_name": "Piyoz",
+            "category": "vegetables", "price_per_kg": 4000, "region": "samarkand",
+            "whatsapp_number": "9" * 40,
+        })
+        check("X-Admin-Token listing with a 40-digit WhatsApp -> 422", r.status_code == 422)
+
         r = await c.patch(f"/listings/{api_listing['id']}/sold", headers=AT,
                           json={"is_sold_out": True})
         check("PATCH /listings/<id>/sold marks sold",
@@ -799,6 +819,13 @@ async def main() -> int:
         body = r.json()
         check("listing phone typed as '90 765 43 21' stored as +998…",
               r.status_code == 200 and body.get("phone") == "+998907654321", body.get("phone"))
+        r = await c.patch(f"/api/my/listings/{listing_id}", headers=H, json={"phone": "1" * 32})
+        check("a 32-digit 'phone' is a 422, not a 500 on Postgres", r.status_code == 422, str(r.status_code))
+        r = await c.patch(f"/api/my/listings/{listing_id}", headers=H, json={"whatsapp": "٩٠ ٧٦٥ ٤٣ ٢١"})
+        check("Arabic-Indic digits are read as the same number",
+              r.status_code == 200 and r.json().get("whatsapp") == "+998907654321", r.text[:120])
+        r = await c.patch("/api/auth/me", headers=H, json={"phone": "12"})
+        check("profile phone with too few digits -> 422", r.status_code == 422, str(r.status_code))
         r = await c.post(f"/api/listings/{listing_id}/contact?channel=call")
         cj = r.json()
         check("contact links dial +998, not +90 (Turkey)",
@@ -814,6 +841,23 @@ async def main() -> int:
             check("legacy listing phone and WhatsApp rewritten on start-up",
                   (row.phone, row.whatsapp) == ("+998907654321", "+998907654321"),
                   f"{row.phone} {row.whatsapp}")
+        # Junk that is not a phone number must not stop the service from starting.
+        async with session_factory() as s:
+            row = await s.get(Listing, listing_id)
+            row.phone = "1" * 32
+            await s.commit()
+        try:
+            await init_db()
+            started = True
+        except Exception as exc:  # noqa: BLE001
+            started = False
+            print("   init_db raised:", exc)
+        async with session_factory() as s:
+            row = await s.get(Listing, listing_id)
+            check("start-up survives a 32-digit legacy phone and leaves it alone",
+                  started and row.phone == "1" * 32, row.phone)
+            row.phone = "+998907654321"
+            await s.commit()
 
         notify.send_background = real_send
 

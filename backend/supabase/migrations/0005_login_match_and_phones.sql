@@ -23,6 +23,12 @@ alter table auth_codes add column if not exists match_code varchar(4);
 -- To'qqiz raqam = kod-siz yozilgan O'zbekiston mobil raqami (backend'dagi
 -- normalize_phone qoidasi). '+901234567' va '90 123 45 67' -> '+998901234567'.
 -- Boshqa shakllar ('998901234567', '+998 90 123-45-67') faqat raqamlari qoladi.
+--
+-- Tegilmaydiganlar — backend ham ularni o'zgartirmaydi yoki o'zi hal qiladi:
+--   * 15 tadan ko'p raqam — telefon raqami emas (E.164), '+' bilan ustunga
+--     sig'masligi ham mumkin edi;
+--   * lotin bo'lmagan raqamlar ('٩٠ ١٢٣…') — SQL ularni raqam deb bilmaydi,
+--     backend esa to'g'ri o'giradi.
 update users
    set phone = case
      when length(regexp_replace(phone, '\D', '', 'g')) = 9
@@ -30,7 +36,8 @@ update users
      else '+' || regexp_replace(phone, '\D', '', 'g')
    end
  where phone is not null
-   and regexp_replace(phone, '\D', '', 'g') <> ''
+   and phone !~ '[^[:ascii:]]'
+   and length(regexp_replace(phone, '\D', '', 'g')) between 1 and 15
    and phone !~ '^\+[0-9]{10,}$';
 
 update listings
@@ -40,7 +47,8 @@ update listings
      else '+' || regexp_replace(phone, '\D', '', 'g')
    end
  where phone is not null
-   and regexp_replace(phone, '\D', '', 'g') <> ''
+   and phone !~ '[^[:ascii:]]'
+   and length(regexp_replace(phone, '\D', '', 'g')) between 1 and 15
    and phone !~ '^\+[0-9]{10,}$';
 
 update listings
@@ -50,5 +58,6 @@ update listings
      else '+' || regexp_replace(whatsapp, '\D', '', 'g')
    end
  where whatsapp is not null
-   and regexp_replace(whatsapp, '\D', '', 'g') <> ''
+   and whatsapp !~ '[^[:ascii:]]'
+   and length(regexp_replace(whatsapp, '\D', '', 'g')) between 1 and 15
    and whatsapp !~ '^\+[0-9]{10,}$';

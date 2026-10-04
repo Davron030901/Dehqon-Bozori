@@ -1,8 +1,9 @@
 /**
  * Sign in with Telegram — no password, no SMS.
  *
- *   1. ask the API for a one-time code and its t.me deep link
- *   2. open Telegram; the person taps "Start" and the bot approves the code
+ *   1. ask the API for a one-time code, its t.me deep link and a two-digit number
+ *   2. show the number FIRST; the person then opens Telegram, taps "Start" and
+ *      picks that number in the bot, which approves the code
  *   3. poll until the API hands back a token
  *
  * The account IS the Telegram account, so listings posted in the bot are
@@ -66,15 +67,23 @@ export default function LoginPanel({ onSignedIn, intro }: { onSignedIn?: () => v
     }
   }, [onSignedIn, signIn, stop]);
 
+  // The timer and the foreground listener call the LATEST poll. `poll` changes
+  // identity whenever signIn does (e.g. the language chips were tapped while
+  // waiting); tying the timer's life to it used to stop polling for good.
+  const pollRef = useRef(poll);
+  useEffect(() => {
+    pollRef.current = poll;
+  }, [poll]);
+
   useEffect(() => {
     const sub = AppState.addEventListener('change', (status) => {
-      if (status === 'active' && login.current) void poll();
+      if (status === 'active' && login.current) void pollRef.current();
     });
     return () => {
       sub.remove();
       stop();
     };
-  }, [poll, stop]);
+  }, [stop]);
 
   async function begin() {
     setError(null);
@@ -84,8 +93,10 @@ export default function LoginPanel({ onSignedIn, intro }: { onSignedIn?: () => v
       setMatchCode(started.matchCode);
       setState('waiting');
       stop();
-      timer.current = setInterval(() => void poll(), POLL_MS);
-      await Linking.openURL(started.deepLink);
+      timer.current = setInterval(() => void pollRef.current(), POLL_MS);
+      // Telegram is NOT opened here: it would cover the number before it was
+      // read, and a guess in the bot is wrong two times in three (and burns
+      // the code). The person opens it with the button under the number.
     } catch (err) {
       setState('error');
       setError(err instanceof Error ? err.message : t.common.error);
@@ -115,13 +126,13 @@ export default function LoginPanel({ onSignedIn, intro }: { onSignedIn?: () => v
               {matchCode}
             </Text>
           </View>
-          <Banner text={t.auth.waiting} />
           <Button
-            title={t.auth.reopen}
+            title={t.auth.openTelegram}
             icon="paper-plane"
-            variant="ghost"
+            variant="telegram"
             onPress={() => login.current && void Linking.openURL(login.current.deepLink)}
           />
+          <Banner text={t.auth.waiting} />
         </>
       ) : (
         <Button title={t.auth.button} icon="paper-plane" variant="telegram" onPress={() => void begin()} />

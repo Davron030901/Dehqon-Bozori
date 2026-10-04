@@ -16,12 +16,15 @@
 
 import { useEffect, useState } from 'react';
 
-import { addFavorite, getFavoriteIds, removeFavorite, syncFavorites } from './api';
+import { ApiError, addFavorite, getFavoriteIds, removeFavorite, syncFavorites } from './api';
 import {
+  clearToken,
+  getFavoritesOwner,
   getLocalFavorites,
   getToken,
   isFavoritesMergePending,
   setFavoritesMergePending,
+  setFavoritesOwner,
   setLocalFavorites,
 } from './session';
 
@@ -42,6 +45,15 @@ function publish(next: string[]): void {
   listeners.forEach((listener) => listener(next));
 }
 
+/** The account's list, as the server returned it for `token`. */
+function publishAccount(token: string, next: string[]): void {
+  // An answer that arrives after a sign-out (or a switch of account) is for
+  // someone who is no longer here — writing it back would undo the reset.
+  if (getToken() !== token) return;
+  publish(next);
+  setFavoritesOwner(token);
+}
+
 /**
  * Signed in: the account is the truth, so a heart removed on the phone does not
  * come back from this browser's stale copy. Read it once per page load.
@@ -57,13 +69,19 @@ async function syncOnce(): Promise<void> {
   if (!token) return;
   try {
     if (isFavoritesMergePending()) {
-      publish(await syncFavorites(token, current()));
+      publishAccount(token, await syncFavorites(token, current()));
       setFavoritesMergePending(false);
     } else {
-      publish(await getFavoriteIds(token));
+      publishAccount(token, await getFavoriteIds(token));
     }
-  } catch {
-    // offline or token expired — the local list still works; try next page
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 401) {
+      // The session ended elsewhere: behave exactly like a sign-out here.
+      clearToken();
+      resetFavorites();
+      return;
+    }
+    // offline — the local list still works; try again on the next page
     synced = false;
   }
 }
@@ -97,9 +115,13 @@ export async function toggleFavorite(id: string): Promise<boolean> {
 export async function mergeFavoritesAfterLogin(): Promise<void> {
   const token = getToken();
   if (!token) return;
+  // Still a mirror of an earlier account whose session ended without a
+  // sign-out here: those hearts are not this person's to merge.
+  const owner = getFavoritesOwner();
+  if (owner && owner !== token) publish([]);
   setFavoritesMergePending(true);
   try {
-    publish(await syncFavorites(token, current()));
+    publishAccount(token, await syncFavorites(token, current()));
     setFavoritesMergePending(false);
     synced = true;
   } catch {
@@ -115,6 +137,7 @@ export async function mergeFavoritesAfterLogin(): Promise<void> {
 export function resetFavorites(): void {
   synced = false;
   setFavoritesMergePending(false);
+  setFavoritesOwner(null);
   publish([]);
 }
 

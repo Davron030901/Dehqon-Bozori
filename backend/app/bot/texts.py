@@ -35,10 +35,11 @@ TEXTS: dict[str, dict[str, str]] = {
         "web_login_confirm": (
             "🔐 <b>Saytga yoki ilovaga kirish so'raldi</b>\n\n"
             "Kirish sahifasida <b>ikki xonali raqam</b> ko'rsatilgan. "
-            "Quyidan aynan o'sha raqamni bosing.\n\n"
-            "⚠️ Agar bu havolani kimdir sizga yuborgan bo'lsa yoki siz hozir hech "
-            "qayerga kirmayotgan bo'lsangiz — «Bu men emas» ni bosing. Aks holda "
-            "u odam sizning hisobingizga kirib oladi."
+            "Quyidan aynan o'sha raqamni bosing. Ko'rmagan bo'lsangiz, taxmin "
+            "qilmang — sahifaga qaytib qarang: noto'g'ri raqam kirishni bekor qiladi.\n\n"
+            "⚠️ Agar bu havolani yoki raqamni kimdir sizga yuborgan bo'lsa yoki siz "
+            "hozir hech qayerga kirmayotgan bo'lsangiz — «Bu men emas» ni bosing. "
+            "Aks holda u odam sizning hisobingizga kirib oladi."
         ),
         "web_login_denied": (
             "🚫 Kirish bekor qilindi.\n\n"
@@ -234,9 +235,10 @@ TEXTS: dict[str, dict[str, str]] = {
         "web_login_confirm": (
             "🔐 <b>Запрошен вход на сайт или в приложение</b>\n\n"
             "На странице входа показано <b>двузначное число</b>. "
-            "Нажмите ниже именно это число.\n\n"
-            "⚠️ Если эту ссылку вам кто-то прислал или вы сейчас никуда не входите — "
-            "нажмите «Это не я». Иначе этот человек войдёт в ваш аккаунт."
+            "Нажмите ниже именно это число. Не видели его — не угадывайте, "
+            "вернитесь и посмотрите: неверное число отменяет вход.\n\n"
+            "⚠️ Если эту ссылку или число вам кто-то прислал или вы сейчас никуда "
+            "не входите — нажмите «Это не я». Иначе этот человек войдёт в ваш аккаунт."
         ),
         "web_login_denied": (
             "🚫 Вход отменён.\n\n"

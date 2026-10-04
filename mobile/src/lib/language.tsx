@@ -13,7 +13,13 @@ import type { Lang } from './types';
 interface LanguageState {
   lang: Lang;
   t: Dictionary;
+  /** The person picked a language: it wins over any account's from now on. */
   setLang: (lang: Lang) => void;
+  /**
+   * Follow a signed-in account's language without counting it as a choice —
+   * otherwise the next account on a shared phone would get it pushed onto them.
+   */
+  adoptLang: (lang: Lang) => void;
   /** True once the person picked a language on this phone themselves. */
   chosen: boolean;
   ready: boolean;
@@ -27,9 +33,12 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
-    void readJson<Lang | null>(KEYS.language, null).then((saved) => {
+    void Promise.all([
+      readJson<Lang | null>(KEYS.language, null),
+      readJson<boolean>(KEYS.languageChosen, false),
+    ]).then(([saved, picked]) => {
       setLangState(saved === 'ru' ? 'ru' : 'uz');
-      setChosen(saved === 'ru' || saved === 'uz');
+      setChosen(picked === true);
       setReady(true);
     });
   }, []);
@@ -38,11 +47,17 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
     setLangState(next);
     setChosen(true);
     void writeJson(KEYS.language, next);
+    void writeJson(KEYS.languageChosen, true);
+  }, []);
+
+  const adoptLang = useCallback((next: Lang) => {
+    setLangState(next);
+    void writeJson(KEYS.language, next);
   }, []);
 
   const value = useMemo(
-    () => ({ lang, t: dictionary(lang), setLang, chosen, ready }),
-    [lang, setLang, chosen, ready],
+    () => ({ lang, t: dictionary(lang), setLang, adoptLang, chosen, ready }),
+    [lang, setLang, adoptLang, chosen, ready],
   );
   return <LanguageContext.Provider value={value}>{children}</LanguageContext.Provider>;
 }

@@ -1,6 +1,16 @@
 /** "Shikoyat qilish" — flag a listing for the founder. Anonymous, like everything a buyer does. */
 import { useState } from 'react';
-import { Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import {
+  Keyboard,
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import * as api from '@/lib/api';
@@ -63,7 +73,15 @@ export default function ReportSheet({
       {/* The note field sits at the bottom; without this the iOS keyboard covers it and Submit. */}
       <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <Pressable style={styles.backdrop} onPress={tapOutside} />
-        <View style={[styles.sheet, { paddingBottom: insets.bottom + space.lg }]}>
+        {/* Scrolls when the keyboard leaves less room than the sheet needs
+            (an iPhone SE with the keyboard up), so Submit stays reachable. */}
+        <ScrollView
+          style={styles.sheet}
+          contentContainerStyle={[styles.sheetContent, { paddingBottom: insets.bottom + space.lg }]}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="interactive"
+          bounces={false}
+        >
           <Text style={styles.title}>{t.report.title}</Text>
           {state === 'done' ? (
             <>
@@ -99,21 +117,23 @@ export default function ReportSheet({
               </View>
             </>
           )}
-        </View>
+        </ScrollView>
       </KeyboardAvoidingView>
     </Modal>
   );
 }
 
 const styles = StyleSheet.create({
-  backdrop: { flex: 1, backgroundColor: 'rgba(28,42,36,0.35)' },
+  // Never shrinks to nothing: a strip stays tappable to hide the keyboard.
+  backdrop: { flex: 1, minHeight: 48, backgroundColor: 'rgba(28,42,36,0.35)' },
   sheet: {
+    flexGrow: 0,
+    flexShrink: 1,
     backgroundColor: colors.white,
     borderTopLeftRadius: 22,
     borderTopRightRadius: 22,
-    padding: space.lg,
-    gap: space.md,
   },
+  sheetContent: { padding: space.lg, gap: space.md },
   title: { fontSize: 18, fontWeight: '800', color: colors.ink },
   option: { flexDirection: 'row', alignItems: 'center', gap: space.md, minHeight: 40 },
   radio: { width: 22, height: 22, borderRadius: 11, borderWidth: 2, borderColor: colors.sand300 },

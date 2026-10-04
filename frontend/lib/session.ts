@@ -21,6 +21,7 @@ const PROFILE_KEY = 'db_profile_draft';
 const LISTINGS_KEY = 'db_listing_drafts';
 const FAVORITES_KEY = 'db_favorites';
 const FAVORITES_MERGE_KEY = 'db_favorites_merge_pending';
+const FAVORITES_OWNER_KEY = 'db_favorites_owner';
 
 function read<T>(key: string): T | null {
   if (typeof window === 'undefined') return null;
@@ -149,11 +150,30 @@ export function isFavoritesMergePending(): boolean {
 
 export function setFavoritesMergePending(pending: boolean): void {
   if (pending) write(FAVORITES_MERGE_KEY, true);
-  else if (typeof window !== 'undefined') {
-    try {
-      window.localStorage.removeItem(FAVORITES_MERGE_KEY);
-    } catch {
-      /* private mode — nothing was stored either */
-    }
+  else remove(FAVORITES_MERGE_KEY);
+}
+
+/**
+ * Whose account the device list mirrors (the session token it came with), or
+ * null for a guest's own hearts. A session can end without a sign-out on this
+ * browser — it expires, or "sign out everywhere" ran on the phone — and the
+ * mirror must then not be merged into the next account that signs in here.
+ */
+export function getFavoritesOwner(): string | null {
+  const owner = read<unknown>(FAVORITES_OWNER_KEY);
+  return typeof owner === 'string' ? owner : null;
+}
+
+export function setFavoritesOwner(token: string | null): void {
+  if (token) write(FAVORITES_OWNER_KEY, token);
+  else remove(FAVORITES_OWNER_KEY);
+}
+
+function remove(key: string): void {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.removeItem(key);
+  } catch {
+    /* private mode — nothing was stored either */
   }
 }

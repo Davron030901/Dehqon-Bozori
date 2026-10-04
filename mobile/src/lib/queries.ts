@@ -61,6 +61,9 @@ export function useListingsByIds(ids: string[]) {
   return useQuery({
     queryKey: ['byIds', ids, lang],
     queryFn: () => api.fetchListingsByIds(ids, lang),
+    // Un-hearting a card changes the key. Keep the grid (minus that card) on
+    // screen while it reloads, instead of a full-screen spinner on 3G.
+    placeholderData: (previous) => previous?.filter((listing) => ids.includes(listing.id)),
   });
 }
 

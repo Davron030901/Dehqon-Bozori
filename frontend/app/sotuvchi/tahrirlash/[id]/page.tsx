@@ -8,11 +8,17 @@ import { useCallback, useEffect, useState } from 'react';
 import ListingForm, { type ListingFormResult, type ListingFormValues } from '@/components/ListingForm';
 import LoginGate from '@/components/LoginGate';
 import { getListingById, getSession, updateListing, uploadPhoto } from '@/lib/api';
+import { editableQuantity } from '@/lib/format';
 import { getToken } from '@/lib/session';
-import { strings } from '@/lib/strings';
+import { strings, unitLabels } from '@/lib/strings';
 import type { Listing } from '@/lib/types';
 
 type Phase = 'checking' | 'login' | 'missing' | 'form';
+
+/** "500 kg" on a kg listing -> "500"; "3 tonna" stays "3 tonna", not "3". */
+function startQuantity(listing: Listing): string {
+  return editableQuantity(listing.quantity, [unitLabels[listing.unit] ?? listing.unit]);
+}
 
 /**
  * Edit a listing — every field, not just the price.
@@ -57,10 +63,13 @@ export default function EditListingPage({ params }: { params: { id: string } }) 
         values.photoUrl = uploaded.photoUrl;
         values.photoFileId = uploaded.photoFileId;
       }
-      // An untouched quantity is not sent: a bare "500" from the bot must not
-      // turn into "500 kg" just because the price was edited.
+      // An untouched quantity under an unchanged unit is not sent: a bare "500"
+      // from the bot must not turn into "500 kg" just because the price was
+      // edited. A new unit re-sends it, so "500 kg" becomes "500 litr".
       const patch: Partial<ListingFormResult> = { ...values };
-      if ((values.quantity ?? '') === (listing.quantity ?? '').trim()) delete patch.quantity;
+      if (values.unit === listing.unit && (values.quantity ?? '') === startQuantity(listing)) {
+        delete patch.quantity;
+      }
       await updateListing(token, listing.id, patch);
       router.push('/sotuvchi/kabinet');
     } catch (err) {
@@ -120,8 +129,7 @@ export default function EditListingPage({ params }: { params: { id: string } }) 
     category: listing.category,
     price: String(listing.price),
     unit: listing.unit,
-    // The raw text — "3 tonna" stays "3 tonna", not "3".
-    quantity: listing.quantity ?? '',
+    quantity: startQuantity(listing),
     region: listing.region,
     district: listing.district,
     harvestDate: listing.harvestDate,

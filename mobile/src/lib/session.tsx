@@ -37,7 +37,7 @@ interface SessionState {
 const SessionContext = createContext<SessionState | null>(null);
 
 export function SessionProvider({ children }: { children: ReactNode }) {
-  const { lang, chosen, setLang } = useLanguage();
+  const { lang, chosen, adoptLang } = useLanguage();
   const queryClient = useQueryClient();
   const [token, setTokenState] = useState<string | null>(null);
   const [session, setSession] = useState<SessionInfo | null>(null);
@@ -106,10 +106,10 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         // The language picked on this phone wins, and the bot learns it too.
         api.updateProfile(next, { language: lang }).catch(() => undefined);
       } else if (!chosen) {
-        setLang(info.language);
+        adoptLang(info.language);
       }
     },
-    [load, chosen, lang, setLang],
+    [load, chosen, lang, adoptLang],
   );
 
   const signOut = useCallback(async () => {

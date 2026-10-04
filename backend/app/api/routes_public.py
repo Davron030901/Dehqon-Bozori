@@ -22,8 +22,9 @@ from sqlalchemy import select
 from app.catalog import CATEGORIES, REGIONS
 from app.config import settings
 from app.db.database import ContactEvent, Listing, User
-from app.db.queries import get_or_create_offline_seller, normalize_phone
+from app.db.queries import get_or_create_offline_seller
 from app.districts import DISTRICT_TO_REGION
+from app.phones import checked_phone
 
 from . import ratelimit
 from .deps import MAX_DB_ID, DbSession
@@ -90,11 +91,8 @@ class SellerIn(BaseModel):
     @field_validator("phone")
     @classmethod
     def _normalize(cls, v: str) -> str:
-        digits = "".join(c for c in v if c.isdigit())
-        if len(digits) < 7:
-            raise ValueError("phone number looks too short")
-        # The one normalisation every seller-creating path shares.
-        return normalize_phone(v)
+        # The one normalisation every seller-creating path shares; 7–15 digits.
+        return checked_phone(v)
 
 
 class SellerOut(BaseModel):
@@ -247,10 +245,17 @@ class PublicListingIn(BaseModel):
     region: str = "samarkand"
     harvest_date: date | None = None
     photo_url: str | None = None
-    phone: str | None = None
+    phone: str | None = Field(default=None, max_length=32)
     telegram_username: str | None = None
-    whatsapp_number: str | None = None
+    whatsapp_number: str | None = Field(default=None, max_length=32)
     description: str | None = Field(default=None, max_length=1000)
+
+    # Stored canonical like every other path, so the same grower is one seller
+    # and the call button dials Uzbekistan.
+    @field_validator("seller_phone", "phone", "whatsapp_number")
+    @classmethod
+    def _phones(cls, v: str | None) -> str | None:
+        return checked_phone(v)
 
 
 @router.post(

@@ -4,6 +4,7 @@ import {
   formatDate,
   formatPrice,
   isValidPhone,
+  editableQuantity,
   parsePrice,
   quantityText,
   telHref,
@@ -117,5 +118,20 @@ describe('quantityText', () => {
     expect(quantityText('3 tonna', 'kg')).toBe('3 tonna');
     expect(quantityText('  2   mashina ', 'kg')).toBe('2 mashina');
     expect(quantityText('', 'kg')).toBeNull();
+  });
+});
+
+describe('editableQuantity', () => {
+  it('drops the unit the site added, so a new unit relabels the number', () => {
+    expect(editableQuantity('500 kg', ['kg'])).toBe('500');
+    expect(editableQuantity('1,5 kg', ['kg'])).toBe('1,5');
+  });
+
+  it('keeps everything else exactly as written', () => {
+    expect(editableQuantity('3 tonna', ['kg'])).toBe('3 tonna');
+    expect(editableQuantity('500', ['kg'])).toBe('500');
+    expect(editableQuantity('500-600 kg', ['kg'])).toBe('500-600 kg');
+    expect(editableQuantity('40 litr', ['kg'])).toBe('40 litr');
+    expect(editableQuantity(undefined, ['kg'])).toBe('');
   });
 });

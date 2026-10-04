@@ -6,7 +6,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
 
-from app.phones import normalize_phone
+from app.phones import checked_phone
 
 
 def _own_upload(value: str | None) -> str | None:
@@ -187,7 +187,7 @@ class ListingIn(BaseModel):
     @field_validator("phone", "whatsapp")
     @classmethod
     def _phone(cls, v: str | None) -> str | None:
-        return normalize_phone(v) if v else v
+        return checked_phone(v)
 
     # mode="before": strip FIRST, so min_length sees "   " as empty and a
     # whitespace-only title is a 422, not a blank card in the feed.
@@ -244,7 +244,7 @@ class ListingPatch(BaseModel):
     @field_validator("phone", "whatsapp")
     @classmethod
     def _phone(cls, v: str | None) -> str | None:
-        return normalize_phone(v) if v else v
+        return checked_phone(v)
 
     # mode="before": strip FIRST, so min_length sees "   " as empty and a
     # whitespace-only title is a 422, not a blank card in the feed.
@@ -281,6 +281,11 @@ class ProfileIn(BaseModel):
     village: str | None = Field(default=None, max_length=128)
     language: str | None = None
 
+    @field_validator("phone")
+    @classmethod
+    def _phone(cls, v: str | None) -> str | None:
+        return checked_phone(v)
+
     @field_validator("language")
     @classmethod
     def _lang(cls, v: str | None) -> str | None:
@@ -294,6 +299,11 @@ class AdminListingIn(ListingIn):
 
     seller_name: str | None = Field(default=None, max_length=255)
     seller_phone: str | None = Field(default=None, max_length=32)
+
+    @field_validator("seller_phone")
+    @classmethod
+    def _seller_phone(cls, v: str | None) -> str | None:
+        return checked_phone(v)
 
 
 class UploadOut(BaseModel):

@@ -296,6 +296,20 @@ export const strings = {
       'Server ulanmagan — e’lon faqat shu brauzerda saqlandi. Server ulangach qaytadan yuboring.',
   },
 
+  login: {
+    button: 'Telegram orqali kirish',
+    matchHint: 'Shu raqamni eslab qoling — bot uni tanlashni so’raydi:',
+    openTelegram: 'Telegram’ni ochish',
+    returnHere: 'Botda raqamni tanlagach, shu sahifaga qayting — kirish o’zi davom etadi.',
+    expired: 'Muddat tugadi. Qaytadan urinib ko’ring.',
+    refused:
+      'Kirish rad etildi: botda boshqa raqam tanlandi. Agar bu siz bo’lsangiz, qaytadan urinib ko’ring.',
+    failed: 'Xatolik yuz berdi.',
+    // Split around <code>NEXT_PUBLIC_API_URL</code>.
+    noServerBefore: 'Server ulanmagan. Kirish uchun',
+    noServerAfter: 'ni sozlang — shu paytgacha formalar brauzeringizda saqlanadi.',
+  },
+
   footer: {
     about:
       'Dehqon Bozori — Samarqand viloyati qishloqlaridan boshlangan, vositachisiz bozor.',

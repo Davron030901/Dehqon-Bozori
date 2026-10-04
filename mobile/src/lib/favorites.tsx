@@ -32,6 +32,13 @@ export function FavoritesProvider({ children }: { children: ReactNode }) {
     void writeJson(KEYS.favorites, unique);
   }, []);
 
+  /** The list belonged to an account that is gone: the guest starts empty. */
+  const wipe = useCallback(() => {
+    publish([]);
+    void writeJson(KEYS.favoritesMergePending, false);
+    void writeJson(KEYS.favoritesFromAccount, false);
+  }, [publish]);
+
   useEffect(() => {
     void readJson<string[]>(KEYS.favorites, []).then((saved) => {
       if (Array.isArray(saved)) setIds(saved.filter((x) => typeof x === 'string'));
@@ -50,11 +57,19 @@ export function FavoritesProvider({ children }: { children: ReactNode }) {
       // Signed out: the list on the phone was the account's list. Leaving it
       // would hand it to the next person who signs in on this phone (and merge
       // it into THEIR account), so the guest list starts empty.
-      publish([]);
-      void writeJson(KEYS.favoritesMergePending, false);
+      wipe();
       return;
     }
-    if (!token || token === before) return;
+    if (!token) {
+      // Started without a session — but the saved list may still mirror an
+      // account whose session ended without a sign-out here (expired, or
+      // "sign out everywhere" on the website). Same rule: not this guest's.
+      void readJson<boolean>(KEYS.favoritesFromAccount, false).then((fromAccount) => {
+        if (fromAccount === true && previousToken.current === null) wipe();
+      });
+      return;
+    }
+    if (token === before) return;
     const freshSignIn = before === null && initialised.current;
     initialised.current = true;
     void (async () => {
@@ -64,17 +79,21 @@ export function FavoritesProvider({ children }: { children: ReactNode }) {
       if (freshSignIn) await writeJson(KEYS.favoritesMergePending, true);
       const mergePending = await readJson<boolean>(KEYS.favoritesMergePending, false);
       try {
-        if (mergePending === true) {
-          publish(await api.syncFavorites(token, await readJson<string[]>(KEYS.favorites, [])));
-          await writeJson(KEYS.favoritesMergePending, false);
-        } else {
-          publish(await api.fetchFavoriteIds(token));
-        }
+        const account =
+          mergePending === true
+            ? await api.syncFavorites(token, await readJson<string[]>(KEYS.favorites, []))
+            : await api.fetchFavoriteIds(token);
+        // Signed out (or someone else signed in) while this was on its way:
+        // writing it back would undo the wipe above.
+        if (previousToken.current !== token) return;
+        publish(account);
+        void writeJson(KEYS.favoritesFromAccount, true);
+        if (mergePending === true) await writeJson(KEYS.favoritesMergePending, false);
       } catch {
         /* offline — the local list keeps working; a pending merge is retried next start */
       }
     })();
-  }, [token, loading, publish]);
+  }, [token, loading, publish, wipe]);
 
   // Mark the first settled render, so a token present at start-up counts as a
   // restored session rather than a sign-in.
@@ -86,6 +105,7 @@ export function FavoritesProvider({ children }: { children: ReactNode }) {
     (id: string) => {
       const saved = ids.includes(id);
       publish(saved ? ids.filter((x) => x !== id) : [id, ...ids]);
+      if (token) void writeJson(KEYS.favoritesFromAccount, true);
       if (token && /^\d+$/.test(id)) {
         api.putFavorite(token, id, !saved).catch(() => undefined);
       }

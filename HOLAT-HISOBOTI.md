@@ -12,15 +12,16 @@ ogohlantirish endi o'rinli emas.
 
 | Tekshiruv | Natija |
 |---|---|
-| `python test_all.py` — 6 ta to'plam | backend 165 · contract 227 · bot 344 · frontend 152 · security 71 · mobile 47 — **hammasi o'tdi** |
-| Backend to'plami **haqiqiy Postgres 16** da | 165/165 — CI'da ham alohida job |
+| `python test_all.py` — 6 ta to'plam | backend 171 · contract 227 · bot 344 · frontend 152 · security 71 · mobile 47 — **hammasi o'tdi** |
+| Backend to'plami **haqiqiy Postgres 16** da | 171/171 — CI'da ham alohida job |
 | `schema.sql` ↔ modellar (`check_schema_sql.py`) | Har bir jadval va ustun mos; eski bazaga 0002–0005 migratsiyalar ikki martadan qo'llanganda ham |
-| `frontend: npm run check` | verify + TypeScript + ESLint + 70 vitest — o'tdi |
+| `frontend: npm run check` | verify + TypeScript + ESLint + 72 vitest — o'tdi |
 | `frontend: npm run build` | Next.js production build — o'tdi (API bilan ham, demo rejimda ham) |
-| `mobile: npm run check` | verify + TypeScript + ESLint + 33 vitest — o'tdi |
+| `mobile: npm run check` | verify + TypeScript + ESLint + 35 vitest — o'tdi |
 | `mobile: expo export --platform android` | Metro Android bundle (Hermes) — o'tdi |
 | `backend: docker build` | Image yig'ildi, konteyner ishga tushdi, `/health` 200, foydalanuvchi root emas |
 | Brauzerda haqiqiy oqimlar (Playwright) | Filtrlar → URL, «Yana ko'rsatish», ♡, shikoyat, sotuvchi sahifasi, rasm bilan e'lon qo'shish, tahrirlash, kabinet, admin shikoyatlar — sayt ham, ilova ham |
+| Tuzatishlardan keyin yana brauzerda | sayt 17/17 · ilova 10/10: raqamli kirish va rad etish, «8 000» narx, miqdor tahriri va birlik almashuvi, +998 havola, chiqishda sevimlilar, tez filtrlar, shikoyat izohi |
 
 ---
 
@@ -74,7 +75,26 @@ ishga tushirib tasdiqlandi. Hammasi tuzatildi va testga qo'shildi:
 | Rasm almashtirilsa ham manzil o'zgarmasdi (7 kunlik kesh) | Xaridorlar eski rasmni ko'rardi | Manzilga rasm versiyasi qo'shildi |
 | «Bugun» belgisi server soati (UTC) bo'yicha hisoblanardi | 00:00–05:00 orasida hydration xatosi | Toshkent vaqti, backend bilan bir xil |
 | Ilovada `/auth/me` bir marta xato bersa, sessiya qayta tekshirilmasdi | Kirgan odam o'zini chiqib ketgan deb ko'rardi | 10 soniyada va ilovaga qaytganda qayta urinish |
-| iPhone'da shikoyat oynasi klaviatura ostida qolardi | Izohni yozib, yuborib bo'lmasdi | Klaviaturadan yuqoriga ko'tariladi |
+| iPhone'da shikoyat oynasi klaviatura ostida qolardi | Izohni yozib, yuborib bo'lmasdi | Klaviaturadan yuqoriga ko'tariladi, kichik ekranda aylantiriladi |
+
+**Tuzatishlarning o'zi ham qayta tekshirildi.** Ikkinchi mustaqil ko'rib chiqish
+13 ta kamchilik topdi, hammasi tuzatildi. Eng muhimlari:
+
+- Ilova Telegram'ni darhol ochib, raqamni ko'rsatmay qo'yardi — sotuvchi
+  taxmin qilishga majbur edi. Endi avval raqam, keyin «Telegram'ni ochish»
+  tugmasi (sayt, ilova va eski PWA'da bir xil).
+- 32 xonali «telefon» `+` bilan ustunga sig'masdi va Postgres'da **backend
+  ishga tushmay qolardi**. Endi 7–15 raqamdan tashqarisi 422; eski
+  yozuvlar tegilmaydi va ishga tushishni to'xtatmaydi.
+- Arab va keng (full-width) raqamlar oddiy raqamga o'giriladi; SQL migratsiya
+  ularga tegmaydi.
+- Birlik o'zgarsa, sayt yozgan «500 kg» → «500 litr» bo'ladi.
+- Docker'da sinab ko'rilganda topildi: API va bot bir jarayonda bir vaqtda
+  bazani yaratardi, **bo'sh bazada** konteyner birinchi deploy'dayoq
+  «table already exists» bilan yiqilardi. Endi navbat bilan; test to'plami
+  ham aynan shunday ishga tushadi.
+- Sessiya muddati tugagan qurilmada sevimlilar keyingi akkauntga
+  qo'shilmaydi (sayt va ilova).
 
 ---
 

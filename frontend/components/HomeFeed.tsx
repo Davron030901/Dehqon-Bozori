@@ -158,7 +158,10 @@ export default function HomeFeed({
           // buyer filters Samarkand listings by a Fergana district.
           onRegionChange={(region) => navigate({ region, district: 'all' })}
           district={filters.district}
-          onDistrictChange={(district) => navigate({ district })}
+          // The district list on screen belongs to the region on screen — pin
+          // it, or a district picked while a region change is still loading
+          // would be sent with the new region and match nothing.
+          onDistrictChange={(district) => navigate({ region: filters.region, district })}
           availableDistricts={availableDistricts}
           sort={filters.sort}
           onSortChange={(sort: SortKey) => navigate({ sort })}

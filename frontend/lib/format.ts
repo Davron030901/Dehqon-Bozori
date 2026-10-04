@@ -81,3 +81,14 @@ export function quantityText(raw: string | undefined | null, unitLabel: string):
   if (!text) return null;
   return /^\d+([.,]\d+)?$/.test(text) ? `${text} ${unitLabel}`.trim() : text;
 }
+
+/**
+ * The quantity as the edit form should show it. "500 kg" that the site wrote
+ * for a kg listing becomes "500", so changing the unit relabels it ("500
+ * litr"); anything else ("3 tonna", the bot's bare "500") is shown as written.
+ */
+export function editableQuantity(raw: string | undefined | null, unitLabels: string[]): string {
+  const text = (raw ?? '').trim();
+  const match = text.match(/^(\d+(?:[.,]\d+)?)\s+(.+)$/);
+  return match && unitLabels.includes(match[2]) ? match[1] : text;
+}

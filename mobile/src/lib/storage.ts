@@ -47,7 +47,11 @@ export async function writeJson(key: string, value: unknown): Promise<void> {
 
 export const KEYS = {
   language: 'db_language',
+  /** True only once the person tapped a language themselves (not adopted from an account). */
+  languageChosen: 'db_language_chosen',
   favorites: 'db_favorites',
   /** True while the guest hearts still have to be merged into the account. */
   favoritesMergePending: 'db_favorites_merge_pending',
+  /** True while the saved list mirrors an account rather than a guest's own hearts. */
+  favoritesFromAccount: 'db_favorites_from_account',
 } as const;

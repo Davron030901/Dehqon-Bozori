@@ -5,6 +5,7 @@ import {
   formatPrice,
   isValidPhone,
   isoDay,
+  editableQuantity,
   parsePrice,
   quantityText,
   telHref,
@@ -103,3 +104,17 @@ describe('quantityText', () => {
   });
 });
 
+
+describe('editableQuantity', () => {
+  it('drops a unit the apps added (either language), so a new unit relabels it', () => {
+    expect(editableQuantity('500 kg', ['kg', 'кг'])).toBe('500');
+    expect(editableQuantity('40 кг', ['kg', 'кг'])).toBe('40');
+  });
+
+  it('keeps everything else as written', () => {
+    expect(editableQuantity('3 tonna', ['kg', 'кг'])).toBe('3 tonna');
+    expect(editableQuantity('500', ['kg', 'кг'])).toBe('500');
+    expect(editableQuantity('500-600 kg', ['kg', 'кг'])).toBe('500-600 kg');
+    expect(editableQuantity(null, ['kg'])).toBe('');
+  });
+});
